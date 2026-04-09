@@ -1,0 +1,23 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.chrispulman/reactivememory-mcp-server",
+  "title": "ReactiveMemory MCP Server",
+  "description": "ReactiveMemory MCP server with local vector-compatible storage, temporal knowledge graph, mining pipeline, and parity-oriented MCP tooling.",
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "nuget",
+      "registryBaseUrl": "https://api.nuget.org/v3/index.json",
+      "identifier": "CP.ReactiveMemory.Mcp.Server",
+      "version": "0.1.0",
+      "runtimeHint": "dnx",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ],
+  "repository": {
+    "url": "https://github.com/ChrisPulman/ReactiveMemory.MCP.Server",
+    "source": "github"
+  }
+}
