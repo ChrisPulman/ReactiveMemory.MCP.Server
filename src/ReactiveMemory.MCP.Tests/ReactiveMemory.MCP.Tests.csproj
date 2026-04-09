@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>ReactiveMemory.MCP.Tests</AssemblyName>
+    <RootNamespace>ReactiveMemory.MCP.Tests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="TUnit.Assertions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ReactiveMemory.MCP.Core\ReactiveMemory.MCP.Core.csproj" />
+    <ProjectReference Include="..\ReactiveMemory.MCP.Server\ReactiveMemory.MCP.Server.csproj" />
+  </ItemGroup>
+</Project>

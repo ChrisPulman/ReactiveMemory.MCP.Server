@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/Config/">
+    <File Path="../.editorconfig" />
+    <File Path="../.gitattributes" />
+    <File Path="../.gitignore" />
+    <File Path="../design.md" />
+    <File Path="../Directory.Build.props" />
+    <File Path="../Directory.Packages.props" />
+    <File Path="../global.json" />
+    <File Path="../LICENSE" />
+    <File Path="../README.md" />
+    <File Path="../testconfig.json" />
+    <File Path="../version.json" />
+  </Folder>
+  <Project Path="ReactiveMemory.MCP.Core/ReactiveMemory.MCP.Core.csproj" />
+  <Project Path="ReactiveMemory.MCP.Server/ReactiveMemory.MCP.Server.csproj" />
+  <Project Path="ReactiveMemory.MCP.Tests/ReactiveMemory.MCP.Tests.csproj" />
+</Solution>
