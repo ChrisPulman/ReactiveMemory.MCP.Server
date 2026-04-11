@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <AssemblyName>ReactiveMemory.MCP.Server</AssemblyName>
+    <AssemblyName>CP.ReactiveMemory.MCP.Server</AssemblyName>
     <RootNamespace>ReactiveMemory.MCP.Server</RootNamespace>
     <PackageId>CP.ReactiveMemory.Mcp.Server</PackageId>
     <Title>ReactiveMemory MCP Server</Title>
@@ -25,7 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ReactiveMemory.MCP.Core\ReactiveMemory.MCP.Core.csproj" />
+    <ProjectReference Include="..\ReactiveMemory.MCP.Core\CP.ReactiveMemory.MCP.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

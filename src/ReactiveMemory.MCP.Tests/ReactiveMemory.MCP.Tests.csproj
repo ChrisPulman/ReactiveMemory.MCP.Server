@@ -11,7 +11,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ReactiveMemory.MCP.Core\ReactiveMemory.MCP.Core.csproj" />
-    <ProjectReference Include="..\ReactiveMemory.MCP.Server\ReactiveMemory.MCP.Server.csproj" />
+    <ProjectReference Include="..\ReactiveMemory.MCP.Core\CP.ReactiveMemory.MCP.Core.csproj" />
+    <ProjectReference Include="..\ReactiveMemory.MCP.Server\CP.ReactiveMemory.MCP.Server.csproj" />
   </ItemGroup>
 </Project>

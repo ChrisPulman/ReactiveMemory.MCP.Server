@@ -2,6 +2,7 @@
   <Folder Name="/Config/">
     <File Path="../.editorconfig" />
     <File Path="../.gitattributes" />
+    <File Path="../.github/workflows/ci.yml" />
     <File Path="../.gitignore" />
     <File Path="../design.md" />
     <File Path="../Directory.Build.props" />
@@ -12,7 +13,7 @@
     <File Path="../testconfig.json" />
     <File Path="../version.json" />
   </Folder>
-  <Project Path="ReactiveMemory.MCP.Core/ReactiveMemory.MCP.Core.csproj" />
-  <Project Path="ReactiveMemory.MCP.Server/ReactiveMemory.MCP.Server.csproj" />
+  <Project Path="ReactiveMemory.MCP.Core/CP.ReactiveMemory.MCP.Core.csproj" />
+  <Project Path="ReactiveMemory.MCP.Server/CP.ReactiveMemory.MCP.Server.csproj" />
   <Project Path="ReactiveMemory.MCP.Tests/ReactiveMemory.MCP.Tests.csproj" />
 </Solution>
