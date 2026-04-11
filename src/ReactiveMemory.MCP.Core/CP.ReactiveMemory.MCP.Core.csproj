@@ -1,7 +1,8 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <AssemblyName>ReactiveMemory.MCP.Core</AssemblyName>
+    <AssemblyName>CP.ReactiveMemory.MCP.Core</AssemblyName>
     <RootNamespace>ReactiveMemory.MCP.Core</RootNamespace>
+    <PackageId>CP.ReactiveMemory.Mcp.Core</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
