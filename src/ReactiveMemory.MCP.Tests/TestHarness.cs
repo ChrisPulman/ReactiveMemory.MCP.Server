@@ -23,7 +23,9 @@ public sealed class TestHarness
         {
             CorePath = Path.Combine(root, "core"),
             CollectionName = "reactivememory_drawers",
+            RelayCollectionName = "reactivememory_relays",
             WalRootPath = Path.Combine(root, "wal"),
+            HookStatePath = Path.Combine(root, "hook_state"),
         };
 
         var service = await ReactiveMemoryService.CreateAsync(options);

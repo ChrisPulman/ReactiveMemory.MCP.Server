@@ -2,7 +2,6 @@ using ReactiveMemory.MCP.Core.Abstractions;
 using ReactiveMemory.MCP.Core.Configuration;
 using ReactiveMemory.MCP.Core.Mining;
 using ReactiveMemory.MCP.Core.Models;
-using ReactiveMemory.MCP.Core.Services;
 using ReactiveMemory.MCP.Core.Storage;
 
 namespace ReactiveMemory.MCP.Tests;
@@ -15,7 +14,7 @@ public class EmbeddingAndIncrementalMiningTests
         var rootPath = Path.Combine(Path.GetTempPath(), "reactive-memory-embedding", Guid.NewGuid().ToString("N"));
         var options = new ReactiveMemoryOptions { CorePath = rootPath, CollectionName = "entries", WalRootPath = Path.Combine(rootPath, "wal") };
         var provider = new ConstantEmbeddingProvider();
-        var store = new JsonVectorStore(options, provider);
+        var store = new JsonVectorStore(options, provider, options.CollectionName);
         await store.InitializeAsync();
         await store.UpsertAsync(new VectorRecord("1", "alpha", new Dictionary<string, string?>()));
 

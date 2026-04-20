@@ -1,4 +1,3 @@
-using ReactiveMemory.MCP.Core.Storage;
 using ReactiveMemory.MCP.Core.Tools;
 using ReactiveMemory.MCP.Core.Wiring;
 
@@ -31,5 +30,20 @@ public class StatusToolTests
         await Assert.That(status.Sectors["project"]).IsEqualTo(1);
         await Assert.That(status.Vaults["backend"]).IsEqualTo(1);
         await Assert.That(taxonomy.Taxonomy["project"]["backend"]).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task React_To_Prompt_Stores_Checkpoint_And_Returns_Related_Memories()
+    {
+        var harness = await TestHarness.CreateAsync();
+        await ReactiveMemoryTools.AddDrawerAsync(harness.Service, "project", "backend", "JWT authentication tokens for API", "notes.md", "seed");
+
+        var result = await ReactiveMemoryTools.ReactToPromptAsync(harness.Service, "How do JWT authentication tokens work for this API?", "Hermes");
+        var checkpoint = await ReactiveMemoryTools.MemoriesFiledAwayAsync(harness.Service);
+
+        await Assert.That(result.Agent).IsEqualTo("Hermes");
+        await Assert.That(result.DrawerId).IsNotNull();
+        await Assert.That(result.RelatedMemories.Count).IsGreaterThanOrEqualTo(1);
+        await Assert.That(checkpoint.Found).IsTrue();
     }
 }

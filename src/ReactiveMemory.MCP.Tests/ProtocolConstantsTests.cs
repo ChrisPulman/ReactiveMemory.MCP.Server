@@ -14,6 +14,7 @@ public class ProtocolConstantsTests
         await Assert.That(coreProtocol).Contains("reactivememory_search");
         await Assert.That(coreProtocol).Contains("reactivememory_facts_query");
         await Assert.That(coreProtocol).Contains("reactivememory_diary_write");
+        await Assert.That(coreProtocol).Contains("reactivememory_react_to_prompt");
     }
 
     [Test]

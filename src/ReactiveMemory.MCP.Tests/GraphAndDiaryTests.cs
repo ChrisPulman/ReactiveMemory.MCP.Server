@@ -23,6 +23,34 @@ public class GraphAndDiaryTests
     }
 
     [Test]
+    public async Task Explicit_Tunnels_Can_Be_Created_Listed_Followed_And_Deleted()
+    {
+        var harness = await TestHarness.CreateAsync();
+        var source = await ReactiveMemoryTools.AddDrawerAsync(harness.Service, "sector_alpha", "decisions", "Alpha decision", "alpha.md", "test");
+        var target = await ReactiveMemoryTools.AddDrawerAsync(harness.Service, "sector_beta", "patterns", "Beta pattern", "beta.md", "test");
+
+        var created = await ReactiveMemoryTools.CreateTunnelAsync(
+            harness.Service,
+            "sector_alpha",
+            "decisions",
+            "sector_beta",
+            "patterns",
+            "reference",
+            "Cross-sector relationship",
+            "tester",
+            source.DrawerId,
+            target.DrawerId);
+        var listed = await ReactiveMemoryTools.ListTunnelsAsync(harness.Service, "sector_alpha");
+        var followed = await ReactiveMemoryTools.FollowTunnelsAsync(harness.Service, "sector_alpha", "decisions");
+        var deleted = await ReactiveMemoryTools.DeleteTunnelAsync(harness.Service, created.Tunnel.TunnelId);
+
+        await Assert.That(created.Success).IsTrue();
+        await Assert.That(listed.Tunnels.Count).IsEqualTo(1);
+        await Assert.That(followed.ConnectedDrawers.Count).IsEqualTo(2);
+        await Assert.That(deleted.Success).IsTrue();
+    }
+
+    [Test]
     public async Task Diary_Write_And_Read_Return_Latest_Entries()
     {
         var harness = await TestHarness.CreateAsync();
@@ -30,9 +58,11 @@ public class GraphAndDiaryTests
         await ReactiveMemoryTools.DiaryWriteAsync(harness.Service, "Hermes", "SESSION:2026-04-10|verified.tests|★★★★", "tests");
 
         var diary = await ReactiveMemoryTools.DiaryReadAsync(harness.Service, "Hermes", 2);
+        var checkpoint = await ReactiveMemoryTools.MemoriesFiledAwayAsync(harness.Service);
 
         await Assert.That(diary.Agent).IsEqualTo("Hermes");
         await Assert.That(diary.Entries.Count).IsEqualTo(2);
         await Assert.That(diary.Entries[0].Topic).IsEqualTo("tests");
+        await Assert.That(checkpoint.Found).IsTrue();
     }
 }

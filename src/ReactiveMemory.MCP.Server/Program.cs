@@ -26,9 +26,9 @@ public static class Program
         builder.Services.AddMcpServer(options => options.ServerInfo = new Implementation
         {
             Name = "reactivememory-mcp-server",
-            Version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.1.0",
+            Version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.4.0",
             Title = "ReactiveMemory MCP Server",
-            Description = "ReactiveMemory-compatible reactive memory server implemented in C#.",
+            Description = "ReactiveMemory-compatible local memory server with automatic prompt reaction, relays, diaries, tunnels, and a temporal knowledge graph.",
         })
         .WithStdioServerTransport()
         .WithTools<MemoryTools>();
