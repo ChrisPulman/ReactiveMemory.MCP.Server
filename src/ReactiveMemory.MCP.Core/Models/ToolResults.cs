@@ -22,9 +22,9 @@ public sealed record SectorsResult(IReadOnlyDictionary<string, int> Sectors);
 /// Represents the result of a vaults query for a specific sector, including the sector name and a mapping of vault
 /// identifiers to their associated values.
 /// </summary>
-/// <param name="Sector">The name of the sector for which vault information is provided. Cannot be null.</param>
+/// <param name="Sector">The sector filter applied to the query, if any.</param>
 /// <param name="Vaults">A read-only dictionary mapping vault identifiers to their corresponding integer values. Cannot be null.</param>
-public sealed record VaultsResult(string Sector, IReadOnlyDictionary<string, int> Vaults);
+public sealed record VaultsResult(string? Sector, IReadOnlyDictionary<string, int> Vaults);
 
 /// <summary>
 /// Represents the result of a taxonomy analysis, containing categorized counts for each taxonomy group.
@@ -107,9 +107,9 @@ public sealed record DeleteDrawerResult(bool Success, string DrawerId, string? E
 /// <param name="ValidTo">The end date or time until which the fact is considered valid, or null if unknown.</param>
 /// <param name="Confidence">A confidence score between 0.0 and 1.0 indicating the reliability of the fact. Higher values represent greater
 /// confidence.</param>
-/// <param name="SourceCloset">An optional identifier or reference to the source or provenance of the fact, or null if not specified.</param>
+/// <param name="SourceVault">An optional identifier or reference to the source or provenance of the fact, or null if not specified.</param>
 /// <param name="Current">true if the fact is currently considered valid; otherwise, false.</param>
-public sealed record KnowledgeGraphFact(string Direction, string Subject, string Predicate, string Object, string? ValidFrom, string? ValidTo, double Confidence, string? SourceCloset, bool Current);
+public sealed record KnowledgeGraphFact(string Direction, string Subject, string Predicate, string Object, string? ValidFrom, string? ValidTo, double Confidence, string? SourceVault, bool Current);
 
 /// <summary>
 /// Represents the result of a knowledge graph query for a specific entity and direction, including the relevant facts
@@ -203,7 +203,7 @@ public sealed record TraverseEntry(string Vault, IReadOnlyList<string> Sectors, 
 public sealed record TraverseResult(string StartVault, IReadOnlyList<TraverseEntry> Results, string? Error = null, IReadOnlyList<string>? Suggestions = null);
 
 /// <summary>
-/// Represents an entry in a tunnel configuration, including vault information, associated sectors, relays, usage count,
+/// Represents an entry in an implicit tunnel result, including vault information, associated sectors, relays, usage count,
 /// and the most recent activity.
 /// </summary>
 /// <param name="Vault">The name or identifier of the vault associated with this tunnel entry. Cannot be null.</param>

@@ -35,4 +35,17 @@ public class SearchAndDuplicateTests
         await Assert.That(duplicate.IsDuplicate).IsTrue();
         await Assert.That(duplicate.Matches.Count).IsGreaterThanOrEqualTo(1);
     }
+
+    [Test]
+    public async Task Relay_Search_Returns_Compact_Routing_Hits()
+    {
+        var harness = await TestHarness.CreateAsync();
+        await ReactiveMemoryTools.AddDrawerAsync(harness.Service, "project", "backend", "JWT authentication tokens for API", "a.md", "test");
+
+        var relays = await ReactiveMemoryTools.SearchRelaysAsync(harness.Service, "JWT authentication", 5, "project", "backend");
+
+        await Assert.That(relays.Results.Count).IsGreaterThanOrEqualTo(1);
+        await Assert.That(relays.Results[0].Sector).IsEqualTo("project");
+        await Assert.That(relays.Results[0].Vault).IsEqualTo("backend");
+    }
 }

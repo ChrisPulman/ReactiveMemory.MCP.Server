@@ -55,8 +55,11 @@ ReactiveMemory organises everything into a four-level hierarchy:
 | Layer | Technology | Default location |
 |-------|------------|-----------------|
 | Drawer store | JSON flat file | `~/.reactivememory/core/reactivememory_drawers.json` |
-| Vector store | JSON + TF-IDF-style text embeddings | `~/.reactivememory/core/` |
+| Relay store | Compact relay/closet-style vector index | `~/.reactivememory/core/reactivememory_relays.vectors.json` |
+| Vector store | JSON + local embedding vectors | `~/.reactivememory/core/` |
 | Knowledge graph | SQLite (WAL mode) | `~/.reactivememory/core/knowledge_graph.sqlite3` |
+| Explicit tunnels | JSON flat file | `~/.reactivememory/core/explicit_tunnels.json` |
+| Hook/checkpoint state | JSON flat files | `~/.reactivememory/hook_state/` |
 | Write-ahead log | JSONL append-only file | `~/.reactivememory/wal/write_log.jsonl` |
 
 All storage is local and file-based — no external services or API keys are required.
@@ -66,11 +69,13 @@ All storage is local and file-based — no external services or API keys are req
 When this server is active, agents should follow the **ReactiveMemory Protocol**:
 
 1. Call `reactivememory_status` on initialisation to load the current core summary and receive operational guidance.
-2. Before answering questions about persisted facts, call `reactivememory_facts_query` or `reactivememory_search` and use retrieved data instead of assumptions.
-3. When facts change, call `reactivememory_facts_invalidate` for the old state and `reactivememory_facts_add` for the replacement.
-4. After a meaningful interaction, call `reactivememory_diary_write` to persist a concise session record.
-5. Use `reactivememory_list_sectors`, `reactivememory_list_vaults`, `reactivememory_get_taxonomy`, `reactivememory_traverse`, and `reactivememory_find_tunnels` for discovery and navigation.
-6. Call `reactivememory_check_duplicate` before storing repeated content when deduplication accuracy matters.
+2. On every user prompt, call `reactivememory_react_to_prompt` first so ReactiveMemory can recall related memories, detect duplicates, learn entities, and checkpoint the prompt automatically.
+3. Before answering questions about persisted facts, call `reactivememory_facts_query`, `reactivememory_search`, or `reactivememory_search_relays` and use retrieved data instead of assumptions.
+4. When facts change, call `reactivememory_facts_invalidate` for the old state and `reactivememory_facts_add` for the replacement.
+5. After a meaningful interaction, call `reactivememory_diary_write` to persist a concise session record.
+6. Use `reactivememory_list_sectors`, `reactivememory_list_vaults`, `reactivememory_get_taxonomy`, `reactivememory_traverse`, `reactivememory_find_tunnels`, `reactivememory_create_tunnel`, and `reactivememory_follow_tunnels` for discovery and navigation.
+7. Call `reactivememory_check_duplicate` before storing repeated content when deduplication accuracy matters.
+8. Use `reactivememory_hook_settings`, `reactivememory_memories_filed_away`, and `reactivememory_reconnect` when operating with automated checkpointing or external store changes.
 
 ## Available MCP tools
 
@@ -116,7 +121,7 @@ The AAAK format is a compact, parseable, append-only record format for security-
 
 ---
 
-### Search & deduplication
+### Search & relays
 
 #### `reactivememory_search`
 Performs a semantic vector search across stored drawers. Results are ranked by similarity to the query text.
@@ -128,6 +133,19 @@ Performs a semantic vector search across stored drawers. Results are ranked by s
 - `vault` *(optional)* — restrict results to one vault
 
 **When to use:** Use this as the primary retrieval mechanism whenever an agent needs to find relevant stored content. Prefer this over asking the user to repeat context that may already be in the core. Also use it before writing new drawers to check if closely related content already exists.
+
+---
+
+#### `reactivememory_search_relays`
+Searches the compact relay layer — to retrieve short routing and topical hints derived from stored drawers.
+
+**Parameters:**
+- `query` — the search string
+- `limit` *(default: 5)* — maximum number of results to return
+- `sector` *(optional)* — restrict results to one sector
+- `vault` *(optional)* — restrict results to one vault
+
+**When to use:** Use this before or alongside `reactivememory_search` when you want compact, high-signal hints about where relevant content is likely filed. This is especially useful for prompt reaction flows and for cheaply recalling likely related areas of the core before running broader retrieval.
 
 ---
 
@@ -158,6 +176,42 @@ Stores a piece of content into the core under a specified sector and vault. The 
 
 ---
 
+#### `reactivememory_get_drawer`
+Fetches a single drawer by ID and returns its full content plus stored metadata.
+
+**Parameters:**
+- `drawerId` — the full drawer ID
+
+**When to use:** Use when you already know the drawer identifier from search, duplicate detection, tunnel traversal, or prior storage and need the full verbatim record.
+
+---
+
+#### `reactivememory_list_drawers`
+Lists stored drawers with optional sector/vault filters and paging support.
+
+**Parameters:**
+- `sector` *(optional)* — restrict to one sector
+- `vault` *(optional)* — restrict to one vault
+- `limit` *(default: 20)* — maximum number of entries to return
+- `offset` *(default: 0)* — paging offset
+
+**When to use:** Use for deterministic inspection of stored records, debugging a filing strategy, or browsing a vault without using semantic search.
+
+---
+
+#### `reactivememory_update_drawer`
+Updates an existing drawer's content and/or filing location while preserving its identity.
+
+**Parameters:**
+- `drawerId` — the full drawer ID
+- `content` *(optional)* — replacement content
+- `sector` *(optional)* — replacement sector
+- `vault` *(optional)* — replacement vault
+
+**When to use:** Use when a drawer should stay the same logical record but its text or filing location needs correction. This also refreshes the vector and relay indexes.
+
+---
+
 #### `reactivememory_delete_drawer`
 Removes a drawer from both the drawer store and the vector index by its ID.
 
@@ -182,7 +236,7 @@ Adds a new fact triple to the knowledge graph.
 - `predicate` — the relationship (e.g. `"uses_database"`, `"owned_by"`)
 - `object` — the value or related entity (e.g. `"PostgreSQL"`)
 - `validFrom` *(optional)* — ISO 8601 date string from which the fact is true (defaults to now)
-- `sourceCloset` *(optional)* — the vault or source identifier for traceability
+- `sourceVault` *(optional)* — the vault or source identifier for traceability
 
 **When to use:** Use whenever a new factual assertion needs to be persisted — architectural decisions, ownership, technology choices, environment states, dependency relationships. Predicates are normalised to `snake_case` automatically.
 
@@ -230,9 +284,9 @@ Returns knowledge graph statistics: total entity count, total triple count, curr
 
 ---
 
-### Graph traversal
+### Graph traversal & tunnels
 
-ReactiveMemory builds an implicit vault graph by analysing which drawers share sectors. Vaults that have drawers in multiple sectors become **tunnels** — natural bridges between domains.
+ReactiveMemory builds an implicit vault graph by analysing which drawers share sectors. Vaults that have drawers in multiple sectors become **tunnels** — natural bridges between domains. In addition, ReactiveMemory supports **explicit tunnels**: manually declared cross-sector links that let you encode intentional bridges between vaults and optionally anchor them to specific drawers.
 
 #### `reactivememory_traverse`
 Walks the vault graph using breadth-first traversal starting from a named vault.
@@ -259,13 +313,62 @@ Identifies vaults that contain drawers in more than one sector, making them cros
 ---
 
 #### `reactivememory_graph_stats`
-Returns overall core graph statistics: total vault node count, total edge count, average drawer count per node, and the top-connected vaults.
+Returns overall core graph statistics: total vault node count, total edge count, and vault counts per sector.
 
-**When to use:** Use for a structural health check of the graph, or to find the most densely populated vaults in the core at a glance.
+**When to use:** Use for a structural health check of the graph, or to understand how densely sectors and vaults are connected.
 
 ---
 
-### Agent diary
+#### `reactivememory_create_tunnel`
+Creates or updates an explicit tunnel between two sector/vault pairs.
+
+**Parameters:**
+- `sourceSector`
+- `sourceVault`
+- `targetSector`
+- `targetVault`
+- `tunnelType` *(default: `"reference"`)* — classification of the relationship
+- `description` *(optional)* — human-readable explanation
+- `createdBy` *(optional)* — actor that created or updated the tunnel
+- `sourceDrawerId` *(optional)* — optional anchor drawer on the source side
+- `targetDrawerId` *(optional)* — optional anchor drawer on the target side
+
+**When to use:** Use when a cross-sector relationship is intentional and should not rely only on implicit co-occurrence.
+
+---
+
+#### `reactivememory_list_tunnels`
+Lists explicit tunnels, optionally filtered by sector.
+
+**Parameters:**
+- `sector` *(optional)* — only show tunnels touching the given sector
+
+**When to use:** Use to inspect manually curated bridges across the core or to build navigation/UI around explicit cross-domain relationships.
+
+---
+
+#### `reactivememory_delete_tunnel`
+Deletes an explicit tunnel by ID.
+
+**Parameters:**
+- `tunnelId` — the explicit tunnel identifier
+
+**When to use:** Use when an intentional bridge is obsolete or was created in error.
+
+---
+
+#### `reactivememory_follow_tunnels`
+Follows explicit tunnels starting from a sector/vault and returns the connected tunnels plus any anchored drawers.
+
+**Parameters:**
+- `sector` — start sector
+- `vault` — start vault
+
+**When to use:** Use when you want deterministic, human-curated navigation instead of relying only on implicit graph traversal.
+
+---
+
+### Agent diary, hooks, and prompt reaction
 
 Each agent maintains its own named diary — a chronological log of session notes stored as a dedicated vault under a per-agent sector.
 
@@ -289,6 +392,132 @@ Reads the most recent diary entries for a named agent.
 - `lastN` *(default: 10)* — the number of most recent entries to return
 
 **When to use:** Call at the start of a session to recall what the agent did previously, or to give a user a summary of recent agent activity. Returns entries in reverse-chronological order with timestamps, topics, and content.
+
+---
+
+#### `reactivememory_hook_settings`
+Gets or updates hook/checkpoint behavior settings.
+
+**Parameters:**
+- `silentSave` *(optional)* — whether checkpointing should stay quiet by default
+- `desktopToast` *(optional)* — whether desktop notifications are preferred
+
+**When to use:** Use when integrating ReactiveMemory into a client that performs background checkpointing and you want that behavior configurable rather than hard-coded.
+
+---
+
+#### `reactivememory_memories_filed_away`
+Acknowledges the latest silent checkpoint and returns a short summary of what was saved.
+
+**When to use:** Use after automatic prompt or diary filing when the client wants a compact acknowledgement without surfacing the full save operation inline.
+
+---
+
+#### `reactivememory_reconnect`
+Reinitializes local stores after external modifications.
+
+**When to use:** Use when another process has written directly to ReactiveMemory's local files and the client wants to refresh without restarting the MCP host.
+
+---
+
+#### `reactivememory_react_to_prompt`
+Reacts to the current user prompt by recalling related memories, checking for duplicate prompt storage, learning entities, filing the prompt into the core if needed, and writing a checkpoint summary.
+
+**Parameters:**
+- `prompt` — the current raw user prompt
+- `agentName` *(optional)* — agent/session identifier to associate with the prompt flow
+- `sector` *(optional)* — override filing sector for prompt storage
+- `vault` *(optional)* — override filing vault for prompt storage
+
+**When to use:** This should be the first call for every incoming user prompt when you want ReactiveMemory to operate as an always-on memory layer. It is the server-side primitive that enables automatic memory maximization across conversations.
+
+---
+
+## Automatic prompt reaction integration
+
+To make ReactiveMemory operate as an always-on memory layer, your MCP client or agent host should call `reactivememory_react_to_prompt` for **every incoming user prompt** before planning or answering.
+
+That gives the server a chance to:
+- recall related memories
+- detect duplicate prompt storage
+- learn entities from the prompt
+- store prompt context when useful
+- write a compact checkpoint summary for later acknowledgement
+
+### Recommended flow per user prompt
+
+1. Receive raw user prompt.
+2. Call `reactivememory_react_to_prompt` with that raw prompt.
+3. Use the returned related memories plus normal retrieval tools (`reactivememory_search`, `reactivememory_search_relays`, `reactivememory_facts_query`) to ground the answer.
+4. After the interaction, optionally call `reactivememory_diary_write` for a session-level summary.
+5. Optionally call `reactivememory_memories_filed_away` when you want a lightweight acknowledgement of the last automatic checkpoint.
+
+### Minimal host-side pseudocode
+
+```text
+on_user_prompt(prompt):
+    prompt_context = call_tool("reactivememory_react_to_prompt", {
+        "prompt": prompt,
+        "agentName": "copilot"
+    })
+
+    grounded_search = call_tool("reactivememory_search", {
+        "query": prompt,
+        "limit": 5
+    })
+
+    answer = llm(prompt, memory=[prompt_context, grounded_search])
+    return answer
+```
+
+### JSON-RPC / MCP-style example
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "reactivememory_react_to_prompt",
+    "arguments": {
+      "prompt": "How did we wire JWT refresh token rotation last sprint?",
+      "agentName": "copilot"
+    }
+  }
+}
+```
+
+### C# host integration example
+
+```csharp
+public async Task<PromptContext> PreparePromptAsync(IMcpClient client, string prompt, CancellationToken cancellationToken)
+{
+    var reaction = await client.CallToolAsync(
+        "reactivememory_react_to_prompt",
+        new
+        {
+            prompt,
+            agentName = "copilot",
+        },
+        cancellationToken);
+
+    var related = await client.CallToolAsync(
+        "reactivememory_search",
+        new
+        {
+            query = prompt,
+            limit = 5,
+        },
+        cancellationToken);
+
+    return new PromptContext(reaction, related);
+}
+```
+
+### Practical guidance
+
+- **Do not** wait until the end of the session to call `reactivememory_react_to_prompt` if your goal is maximum continuity.
+- **Do** pass the raw user prompt, not a summary, so entity detection and duplicate checks work correctly.
+- **Do** keep using normal search and facts tools after prompt reaction; `reactivememory_react_to_prompt` is the automatic entrypoint, not a replacement for deeper retrieval.
+- **Do** use `reactivememory_hook_settings` if your host supports background checkpointing preferences.
 
 ---
 
@@ -328,8 +557,9 @@ The server stores all data under `~/.reactivememory/` by default. No environment
 
 | Path | Purpose |
 |------|---------|
-| `~/.reactivememory/core/` | Drawer JSON store and vector index |
+| `~/.reactivememory/core/` | Drawer JSON store, relay index, explicit tunnels, and vector files |
 | `~/.reactivememory/core/knowledge_graph.sqlite3` | Temporal knowledge graph |
+| `~/.reactivememory/hook_state/` | Hook settings and latest checkpoint acknowledgement state |
 | `~/.reactivememory/wal/write_log.jsonl` | Append-only audit log of all mutations |
 
 Configuration can be overridden by providing a `ReactiveMemoryOptions` instance when constructing `ReactiveMemoryService` programmatically.
@@ -390,14 +620,22 @@ Configure your MCP client to launch the server from the built output:
 Once configured, you can ask things like:
 
 - "Call reactivememory_status and tell me what is stored in the core"
-- "Search for everything related to authentication decisions we made last sprint"
+- "For this prompt, call reactivememory_react_to_prompt first, then search for everything related to authentication decisions we made last sprint"
+- "Search relay hints for JWT refresh flow before doing a full semantic search"
 - "Store this architectural decision under sector `backend`, vault `decisions`"
+- "Fetch drawer `drawer_backend_decisions_...` and show me the full stored content"
+- "List the last 20 drawers in sector `backend`, vault `patterns`"
+- "Update this stored drawer so it moves from vault `bugs` to vault `fixes`"
 - "What do we know about the `PaymentService` entity? Call reactivememory_facts_query"
 - "Record that `AuthService` changed its database from MySQL to PostgreSQL today using reactivememory_facts_invalidate then reactivememory_facts_add"
 - "Show me a timeline of all changes to the `DeploymentPipeline` entity using reactivememory_facts_timeline"
 - "Walk the vault graph from `patterns` with 3 hops and tell me what is connected"
 - "Find all vaults that bridge the `auth` and `infrastructure` sectors"
+- "Create an explicit tunnel from sector `backend` / vault `patterns` to sector `devops` / vault `deployments`"
+- "Follow tunnels from sector `backend`, vault `patterns`"
 - "Write a diary entry summarising what we did in this session"
 - "Read the last 5 diary entries for the `copilot` agent"
 - "Check if this code snippet is already stored before saving it"
+- "Acknowledge whatever memories were silently filed away most recently"
+- "Reconnect ReactiveMemory because another process modified the local core"
 - "What does the AAAK spec say and how should I store a new credential record?"

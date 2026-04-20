@@ -15,9 +15,13 @@ public static class ProtocolAdapter
         "reactivememory_get_taxonomy",
         "reactivememory_get_aaak_spec",
         "reactivememory_search",
+        "reactivememory_search_relays",
         "reactivememory_check_duplicate",
         "reactivememory_add_drawer",
         "reactivememory_delete_drawer",
+        "reactivememory_get_drawer",
+        "reactivememory_list_drawers",
+        "reactivememory_update_drawer",
         "reactivememory_facts_query",
         "reactivememory_facts_add",
         "reactivememory_facts_invalidate",
@@ -26,21 +30,21 @@ public static class ProtocolAdapter
         "reactivememory_traverse",
         "reactivememory_find_tunnels",
         "reactivememory_graph_stats",
+        "reactivememory_create_tunnel",
+        "reactivememory_list_tunnels",
+        "reactivememory_delete_tunnel",
+        "reactivememory_follow_tunnels",
         "reactivememory_diary_write",
         "reactivememory_diary_read",
+        "reactivememory_hook_settings",
+        "reactivememory_memories_filed_away",
+        "reactivememory_reconnect",
+        "reactivememory_react_to_prompt",
     ];
 
     /// <summary>
     /// Processes a protocol request and returns the appropriate response based on the specified method.
     /// </summary>
-    /// <remarks>The response format and content depend on the value of the 'method' field in the request.
-    /// Supported methods include 'initialize', 'tools/list', and 'tools/call'. If the method is not recognized, an
-    /// error response is returned. For notification methods such as 'notifications/initialized', the method returns
-    /// null to indicate no response is required.</remarks>
-    /// <param name="request">A dictionary representing the protocol request, where keys and values correspond to request fields and their
-    /// values. Cannot be null.</param>
-    /// <returns>A dictionary containing the response to the request, or null if the request is a notification that does not
-    /// require a response.</returns>
     public static Dictionary<string, object?>? HandleRequest(Dictionary<string, object?> request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -53,7 +57,9 @@ public static class ProtocolAdapter
 
         if (string.Equals(method, "initialize", StringComparison.Ordinal))
         {
-            var parameters = request.TryGetValue("params", out var parameterValue) && parameterValue is Dictionary<string, object?> dictionary ? dictionary : new Dictionary<string, object?>();
+            var parameters = request.TryGetValue("params", out var parameterValue) && parameterValue is Dictionary<string, object?> dictionary
+                ? dictionary
+                : new Dictionary<string, object?>();
             var requested = parameters.TryGetValue("protocolVersion", out var versionValue) ? versionValue?.ToString() : null;
             var negotiated = requested is null
                 ? Constants.ProtocolConstants.SupportedProtocolVersions[^1]
@@ -67,7 +73,7 @@ public static class ProtocolAdapter
                 {
                     protocolVersion = negotiated,
                     capabilities = new { tools = new { } },
-                    serverInfo = new { name = "reactivememory", version = "0.1.0" },
+                    serverInfo = new { name = "reactivememory", version = "0.3.0" },
                 }),
             };
         }
@@ -83,7 +89,9 @@ public static class ProtocolAdapter
 
         if (string.Equals(method, "tools/call", StringComparison.Ordinal))
         {
-            var parameters = request.TryGetValue("params", out var parameterValue) && parameterValue is Dictionary<string, object?> dictionary ? dictionary : new Dictionary<string, object?>();
+            var parameters = request.TryGetValue("params", out var parameterValue) && parameterValue is Dictionary<string, object?> dictionary
+                ? dictionary
+                : new Dictionary<string, object?>();
             var toolName = parameters.TryGetValue("name", out var nameValue) ? nameValue?.ToString() : null;
             if (toolName is null || !ToolNames.Contains(toolName, StringComparer.Ordinal))
             {
