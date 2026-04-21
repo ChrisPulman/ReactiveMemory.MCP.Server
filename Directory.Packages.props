@@ -4,7 +4,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.6" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.7" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.6" />
     <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
     <PackageVersion Include="Nerdbank.GitVersioning" Version="3.9.50" />
