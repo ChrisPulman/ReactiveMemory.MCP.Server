@@ -30,6 +30,7 @@ public static class SearchService
                 (sector is null || string.Equals(drawer.Sector, sector, StringComparison.Ordinal)) &&
                 (vault is null || string.Equals(drawer.Vault, vault, StringComparison.Ordinal)))
             .Select(drawer => new SearchHit(
+                drawer.Id,
                 drawer.Text,
                 drawer.Sector,
                 drawer.Vault,

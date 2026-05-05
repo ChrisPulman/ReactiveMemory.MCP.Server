@@ -133,3 +133,26 @@ public sealed record PromptReactionResult(
     IReadOnlyList<string> DetectedProjects,
     IReadOnlyList<string> DetectedUncertain,
     string CheckpointSummary);
+
+/// <summary>
+/// Entity registry entry learned from prompts and mined content.
+/// </summary>
+/// <param name="Name">Entity display name.</param>
+/// <param name="Type">Entity type, such as person or project.</param>
+public sealed record ReactiveMemoryEntity(string Name, string Type);
+
+/// <summary>
+/// Result of looking up a learned entity.
+/// </summary>
+/// <param name="Name">Requested or matched entity name.</param>
+/// <param name="Type">Matched entity type, or unknown when not found.</param>
+/// <param name="Found">true when the entity was present in the registry.</param>
+public sealed record EntityLookupResult(string Name, string Type, bool Found);
+
+/// <summary>
+/// Snapshot of learned prompt-reactive entities.
+/// </summary>
+/// <param name="People">Known person entities.</param>
+/// <param name="Projects">Known project entities.</param>
+/// <param name="Total">Total entity count.</param>
+public sealed record EntityListResult(IReadOnlyList<ReactiveMemoryEntity> People, IReadOnlyList<ReactiveMemoryEntity> Projects, int Total);

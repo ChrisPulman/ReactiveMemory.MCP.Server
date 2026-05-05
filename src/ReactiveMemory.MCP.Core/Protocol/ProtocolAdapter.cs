@@ -38,6 +38,8 @@ public static class ProtocolAdapter
         "reactivememory_diary_read",
         "reactivememory_hook_settings",
         "reactivememory_memories_filed_away",
+        "reactivememory_entities_lookup",
+        "reactivememory_entities_list",
         "reactivememory_reconnect",
         "reactivememory_react_to_prompt",
     ];
@@ -73,7 +75,7 @@ public static class ProtocolAdapter
                 {
                     protocolVersion = negotiated,
                     capabilities = new { tools = new { } },
-                    serverInfo = new { name = "reactivememory", version = "0.3.0" },
+                    serverInfo = new { name = "reactivememory", version = "0.5.0" },
                 }),
             };
         }

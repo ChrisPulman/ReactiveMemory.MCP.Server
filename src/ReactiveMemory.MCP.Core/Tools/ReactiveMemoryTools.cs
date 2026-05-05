@@ -189,6 +189,18 @@ public static class ReactiveMemoryTools
         return service.MemoriesFiledAwayAsync();
     }
 
+    public static Task<EntityLookupResult> EntityLookupAsync(ReactiveMemoryService service, string name)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return service.EntityLookupAsync(name);
+    }
+
+    public static Task<EntityListResult> EntityListAsync(ReactiveMemoryService service)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return service.EntityListAsync();
+    }
+
     public static Task<ReconnectResult> ReconnectAsync(ReactiveMemoryService service)
     {
         ArgumentNullException.ThrowIfNull(service);

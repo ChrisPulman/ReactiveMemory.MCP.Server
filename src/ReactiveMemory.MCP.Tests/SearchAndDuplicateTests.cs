@@ -16,6 +16,7 @@ public class SearchAndDuplicateTests
         var vault = await ReactiveMemoryTools.SearchAsync(harness.Service, "planning", 5, null, "planning");
 
         await Assert.That(project.Results.Count).IsEqualTo(1);
+        await Assert.That(project.Results[0].DrawerId).IsNotNullOrWhiteSpace();
         await Assert.That(project.Results[0].Sector).IsEqualTo("project");
         await Assert.That(vault.Results.Count).IsEqualTo(1);
         await Assert.That(vault.Results[0].Vault).IsEqualTo("planning");

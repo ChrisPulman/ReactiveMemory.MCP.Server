@@ -36,13 +36,14 @@ public sealed record TaxonomyResult(IReadOnlyDictionary<string, IReadOnlyDiction
 /// <summary>
 /// Represents a single search result with associated metadata and similarity score.
 /// </summary>
+/// <param name="DrawerId">The stable drawer identifier for fetching the full record.</param>
 /// <param name="Text">The text content of the search hit.</param>
 /// <param name="Sector">The sector or category associated with the search hit.</param>
 /// <param name="Vault">The vault or collection where the search hit was found.</param>
 /// <param name="SourceFile">The source file from which the search hit originates.</param>
 /// <param name="Similarity">The similarity score indicating how closely the search hit matches the search criteria. Ranges from 0.0 (no
 /// similarity) to 1.0 (identical).</param>
-public sealed record SearchHit(string Text, string Sector, string Vault, string SourceFile, double Similarity);
+public sealed record SearchHit(string DrawerId, string Text, string Sector, string Vault, string SourceFile, double Similarity);
 
 /// <summary>
 /// Represents the result of a search operation, including the original query, applied filters, and the list of matching
@@ -136,12 +137,13 @@ public sealed record KnowledgeGraphAddResult(bool Success, string TripleId, stri
 /// <summary>
 /// Represents the result of an attempt to invalidate a knowledge graph triple.
 /// </summary>
-/// <param name="Success">true if the invalidation operation succeeded; otherwise, false.</param>
+/// <param name="Success">true when an active fact was found and invalidated; otherwise, false.</param>
 /// <param name="Subject">The subject of the triple that was targeted for invalidation.</param>
 /// <param name="Predicate">The predicate of the triple that was targeted for invalidation.</param>
 /// <param name="Object">The object of the triple that was targeted for invalidation.</param>
 /// <param name="Ended">The timestamp indicating when the invalidation operation ended, typically in ISO 8601 format.</param>
-public sealed record KnowledgeGraphInvalidateResult(bool Success, string Subject, string Predicate, string Object, string Ended);
+/// <param name="Error">Optional explanation when no matching active fact was invalidated.</param>
+public sealed record KnowledgeGraphInvalidateResult(bool Success, string Subject, string Predicate, string Object, string Ended, string? Error = null);
 
 /// <summary>
 /// Represents a single entry in a knowledge graph timeline, describing a relationship between entities and its temporal
