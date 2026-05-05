@@ -75,7 +75,8 @@ When this server is active, agents should follow the **ReactiveMemory Protocol**
 5. After a meaningful interaction, call `reactivememory_diary_write` to persist a concise session record.
 6. Use `reactivememory_list_sectors`, `reactivememory_list_vaults`, `reactivememory_get_taxonomy`, `reactivememory_traverse`, `reactivememory_find_tunnels`, `reactivememory_create_tunnel`, and `reactivememory_follow_tunnels` for discovery and navigation.
 7. Call `reactivememory_check_duplicate` before storing repeated content when deduplication accuracy matters.
-8. Use `reactivememory_hook_settings`, `reactivememory_memories_filed_away`, and `reactivememory_reconnect` when operating with automated checkpointing or external store changes.
+8. Use `reactivememory_entities_lookup` and `reactivememory_entities_list` to inspect people/projects learned from prompt reactions.
+9. Use `reactivememory_hook_settings`, `reactivememory_memories_filed_away`, and `reactivememory_reconnect` when operating with automated checkpointing or external store changes.
 
 ## Available MCP tools
 
@@ -124,7 +125,7 @@ The AAAK format is a compact, parseable, append-only record format for security-
 ### Search & relays
 
 #### `reactivememory_search`
-Performs a semantic vector search across stored drawers. Results are ranked by similarity to the query text.
+Performs a semantic vector search across stored drawers. Results are ranked by similarity to the query text and include each matching `drawerId` so callers can immediately fetch the full record with `reactivememory_get_drawer`.
 
 **Parameters:**
 - `query` — the search string
@@ -413,6 +414,23 @@ Acknowledges the latest silent checkpoint and returns a short summary of what wa
 
 ---
 
+#### `reactivememory_entities_lookup`
+Looks up a person or project learned by prompt reaction or mining.
+
+**Parameters:**
+- `name` — the entity name to resolve
+
+**When to use:** Use when a prompt mentions a person or project and the agent needs to know whether ReactiveMemory has already catalogued it.
+
+---
+
+#### `reactivememory_entities_list`
+Lists all people and projects currently learned in the prompt-reactive entity registry.
+
+**When to use:** Use during session start, project handoff, or diagnostics to inspect the entity catalogue built from prior prompts and mined interactions.
+
+---
+
 #### `reactivememory_reconnect`
 Reinitializes local stores after external modifications.
 
@@ -608,7 +626,7 @@ Configure your MCP client to launch the server from the built output:
   "args": [
     "run",
     "--project",
-    "/path/to/ReactiveMemory.MCP.Server/src/ReactiveMemory.MCP.Server/ReactiveMemory.MCP.Server.csproj"
+    "/path/to/ReactiveMemory.MCP.Server/src/ReactiveMemory.MCP.Server/CP.ReactiveMemory.MCP.Server.csproj"
   ]
 }
 ```

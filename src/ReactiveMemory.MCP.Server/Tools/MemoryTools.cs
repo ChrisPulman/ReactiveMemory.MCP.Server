@@ -221,6 +221,20 @@ public sealed class MemoryTools
         return JsonOutput.Serialize(await ReactiveMemoryTools.MemoriesFiledAwayAsync(service));
     }
 
+    [McpServerTool(Name = "reactivememory_entities_lookup"), Description("Lookup a person or project learned by prompt reaction")]
+    public static async Task<string> EntityLookupAsync(ReactiveMemoryService service, string name)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return JsonOutput.Serialize(await ReactiveMemoryTools.EntityLookupAsync(service, name));
+    }
+
+    [McpServerTool(Name = "reactivememory_entities_list"), Description("List all people and projects learned by prompt reaction")]
+    public static async Task<string> EntityListAsync(ReactiveMemoryService service)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return JsonOutput.Serialize(await ReactiveMemoryTools.EntityListAsync(service));
+    }
+
     [McpServerTool(Name = "reactivememory_reconnect"), Description("Reinitialize local stores after external modifications")]
     public static async Task<string> ReconnectAsync(ReactiveMemoryService service)
     {

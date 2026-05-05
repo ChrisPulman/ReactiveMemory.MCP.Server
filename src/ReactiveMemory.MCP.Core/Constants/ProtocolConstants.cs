@@ -21,12 +21,13 @@ public static class ProtocolConstants
     public const string CoreProtocol =
         "IMPORTANT — ReactiveMemory Protocol:\n"
         + "1. On initialization, call reactivememory_status to load the current core summary and operational guidance.\n"
-        + "2. Before answering questions about persisted facts, call reactivememory_react_to_prompt for the current user prompt, then use reactivememory_facts_query or reactivememory_search to ground the response.\n"
+        + "2. For every user prompt, call reactivememory_react_to_prompt before reasoning so related drawers are recalled, entities are learned, duplicates are avoided, and a checkpoint is written; then use reactivememory_search, reactivememory_search_relays, or reactivememory_facts_query to ground the response.\n"
         + "3. When facts change, call reactivememory_facts_invalidate for the previous state and reactivememory_facts_add for the replacement state.\n"
         + "4. After a meaningful interaction, call reactivememory_diary_write to persist a concise session record.\n"
         + "5. Use reactivememory_list_sectors, reactivememory_list_vaults, reactivememory_get_taxonomy, reactivememory_traverse, reactivememory_find_tunnels, and explicit tunnel tools for discovery and navigation.\n"
         + "6. Use reactivememory_check_duplicate before storing repeated content when deduplication accuracy matters.\n"
-        + "7. Use reactivememory_hook_settings, reactivememory_memories_filed_away, and reactivememory_reconnect when operating with automated checkpointing or external store updates.\n"
+        + "7. Use reactivememory_entities_lookup and reactivememory_entities_list to inspect people/projects learned from prompt reactions.\n"
+        + "8. Use reactivememory_hook_settings, reactivememory_memories_filed_away, and reactivememory_reconnect when operating with automated checkpointing or external store updates.\n"
         + "ReactiveMemory is an external persistence system; correct usage requires reacting to each prompt, querying before claiming stored knowledge, and updating stored memories as the conversation evolves.";
 
     /// <summary>

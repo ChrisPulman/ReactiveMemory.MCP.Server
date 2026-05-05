@@ -170,8 +170,8 @@ VALUES ($id, $subject, $predicate, $object, $validFrom, $validTo, $confidence, $
     /// <param name="predicate">The predicate of the triple to invalidate. Cannot be null or whitespace.</param>
     /// <param name="obj">The object of the triple to invalidate. Cannot be null or whitespace.</param>
     /// <param name="ended">The end time to set for the triple, indicating when it became invalid. Cannot be null or whitespace.</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
-    public async Task InvalidateAsync(string subject, string predicate, string obj, string ended)
+    /// <returns>A task whose result is true when a matching active triple was invalidated.</returns>
+    public async Task<bool> InvalidateAsync(string subject, string predicate, string obj, string ended)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(predicate);
@@ -186,7 +186,7 @@ VALUES ($id, $subject, $predicate, $object, $validFrom, $validTo, $confidence, $
         command.Parameters.AddWithValue("$subject", ToEntityId(subject));
         command.Parameters.AddWithValue("$predicate", NormalizePredicate(predicate));
         command.Parameters.AddWithValue("$object", ToEntityId(obj));
-        await command.ExecuteNonQueryAsync();
+        return await command.ExecuteNonQueryAsync() > 0;
     }
 
     /// <summary>
@@ -209,6 +209,9 @@ VALUES ($id, $subject, $predicate, $object, $validFrom, $validTo, $confidence, $
         ArgumentException.ThrowIfNullOrWhiteSpace(direction);
 
         direction = string.IsNullOrWhiteSpace(direction) ? "outgoing" : direction;
+        var effectiveAsOf = string.IsNullOrWhiteSpace(asOf)
+            ? DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd")
+            : asOf;
         var facts = new List<KnowledgeGraphFact>();
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync();
@@ -217,13 +220,10 @@ VALUES ($id, $subject, $predicate, $object, $validFrom, $validTo, $confidence, $
         if (direction is "outgoing" or "both")
         {
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT t.predicate, t.valid_from, t.valid_to, t.confidence, t.source_closet, e.name FROM triples t JOIN entities e ON t.object = e.id WHERE t.subject = $entity" + BuildAsOfClause(asOf);
+            command.CommandText = "SELECT t.predicate, t.valid_from, t.valid_to, t.confidence, t.source_closet, e.name FROM triples t JOIN entities e ON t.object = e.id WHERE t.subject = $entity" + BuildAsOfClause();
             command.Parameters.AddWithValue("$entity", entityId);
-            if (asOf is not null)
-            {
-                command.Parameters.AddWithValue("$asOf1", asOf);
-                command.Parameters.AddWithValue("$asOf2", asOf);
-            }
+            command.Parameters.AddWithValue("$asOf1", effectiveAsOf);
+            command.Parameters.AddWithValue("$asOf2", effectiveAsOf);
 
             await using var reader = await command.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -235,13 +235,10 @@ VALUES ($id, $subject, $predicate, $object, $validFrom, $validTo, $confidence, $
         if (direction is "incoming" or "both")
         {
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT t.predicate, t.valid_from, t.valid_to, t.confidence, t.source_closet, e.name FROM triples t JOIN entities e ON t.subject = e.id WHERE t.object = $entity" + BuildAsOfClause(asOf);
+            command.CommandText = "SELECT t.predicate, t.valid_from, t.valid_to, t.confidence, t.source_closet, e.name FROM triples t JOIN entities e ON t.subject = e.id WHERE t.object = $entity" + BuildAsOfClause();
             command.Parameters.AddWithValue("$entity", entityId);
-            if (asOf is not null)
-            {
-                command.Parameters.AddWithValue("$asOf1", asOf);
-                command.Parameters.AddWithValue("$asOf2", asOf);
-            }
+            command.Parameters.AddWithValue("$asOf1", effectiveAsOf);
+            command.Parameters.AddWithValue("$asOf2", effectiveAsOf);
 
             await using var reader = await command.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -352,7 +349,7 @@ VALUES ($id, $subject, $predicate, $object, $validFrom, $validTo, $confidence, $
         await command.ExecuteNonQueryAsync();
     }
 
-    private static string BuildAsOfClause(string? asOf) => asOf is null ? string.Empty : " AND (valid_from IS NULL OR valid_from <= $asOf1) AND (valid_to IS NULL OR valid_to >= $asOf2)";
+    private static string BuildAsOfClause() => " AND (valid_from IS NULL OR valid_from <= $asOf1) AND (valid_to IS NULL OR valid_to >= $asOf2)";
 
     [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities", Justification = "Only trusted constant SQL strings are accepted.")]
     private static async Task<int> ScalarAsync(SqliteConnection connection, string sql)

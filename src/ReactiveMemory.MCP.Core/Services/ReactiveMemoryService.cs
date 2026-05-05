@@ -165,6 +165,7 @@ public sealed class ReactiveMemoryService
         var vectorResults = await vectorStore.QueryAsync(query, limit, filters);
         var hits = vectorResults.Hits
             .Select(hit => new SearchHit(
+                hit.Id,
                 hit.Content,
                 GetMetadataValue(hit.Metadata, "sector"),
                 GetMetadataValue(hit.Metadata, "vault"),
@@ -188,6 +189,7 @@ public sealed class ReactiveMemoryService
         var vectorResults = await relayVectorStore.QueryAsync(query, limit, filters);
         var hits = vectorResults.Hits
             .Select(hit => new SearchHit(
+                hit.Id,
                 hit.Content,
                 GetMetadataValue(hit.Metadata, "sector"),
                 GetMetadataValue(hit.Metadata, "vault"),
@@ -349,7 +351,10 @@ public sealed class ReactiveMemoryService
         ArgumentException.ThrowIfNullOrWhiteSpace(obj);
 
         var normalizedPredicate = NormalizePredicate(predicate);
-        var tripleId = await knowledgeGraphStore.AddTripleAsync(subject, predicate, obj, validFrom, null, 1.0, sourceVault, null);
+        var effectiveValidFrom = string.IsNullOrWhiteSpace(validFrom)
+            ? DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd")
+            : validFrom;
+        var tripleId = await knowledgeGraphStore.AddTripleAsync(subject, normalizedPredicate, obj, effectiveValidFrom, null, 1.0, sourceVault, null);
         var result = new KnowledgeGraphAddResult(true, tripleId, subject, normalizedPredicate, obj);
         await writeAheadLog.AppendAsync("kg_add", new { subject, predicate = normalizedPredicate, obj, validFrom, sourceVault }, result);
         return result;
@@ -368,8 +373,10 @@ public sealed class ReactiveMemoryService
         var value = string.IsNullOrWhiteSpace(ended)
             ? DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd")
             : ended;
-        await knowledgeGraphStore.InvalidateAsync(subject, normalizedPredicate, obj, value!);
-        var result = new KnowledgeGraphInvalidateResult(true, subject, normalizedPredicate, obj, value!);
+        var invalidated = await knowledgeGraphStore.InvalidateAsync(subject, normalizedPredicate, obj, value!);
+        var result = invalidated
+            ? new KnowledgeGraphInvalidateResult(true, subject, normalizedPredicate, obj, value!)
+            : new KnowledgeGraphInvalidateResult(false, subject, normalizedPredicate, obj, value!, "No matching active fact was found.");
         await writeAheadLog.AppendAsync("kg_invalidate", new { subject, predicate = normalizedPredicate, obj, ended = value }, result);
         return result;
     }
@@ -380,7 +387,12 @@ public sealed class ReactiveMemoryService
     public async Task<KnowledgeGraphQueryResult> KnowledgeGraphQueryAsync(string entity, string? asOf, string? direction)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(entity);
-        var actualDirection = string.IsNullOrWhiteSpace(direction) ? "both" : direction!;
+        var actualDirection = string.IsNullOrWhiteSpace(direction) ? "both" : direction!.ToLowerInvariant();
+        if (actualDirection is not ("outgoing" or "incoming" or "both"))
+        {
+            throw new ArgumentException("direction must be outgoing, incoming, or both.", nameof(direction));
+        }
+
         var facts = await knowledgeGraphStore.QueryEntityAsync(entity, asOf, actualDirection);
         return new KnowledgeGraphQueryResult(entity, actualDirection, asOf, facts);
     }
@@ -617,6 +629,27 @@ public sealed class ReactiveMemoryService
         checkpoint.TryGetValue("timestamp", out var timestamp);
         checkpoint.TryGetValue("summary", out var summary);
         return new MemoriesFiledAwayResult(true, DateTimeOffset.UtcNow.ToString("O"), summary ?? "Checkpoint acknowledged.", checkpoint);
+    }
+
+    /// <summary>
+    /// Looks up a learned entity by name.
+    /// </summary>
+    public async Task<EntityLookupResult> EntityLookupAsync(string name)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        var match = await entityRegistry.LookupAsync(name);
+        return new EntityLookupResult(match.Name, match.Type, match.Found);
+    }
+
+    /// <summary>
+    /// Lists learned entities collected by prompt reaction and mining.
+    /// </summary>
+    public async Task<EntityListResult> EntityListAsync()
+    {
+        var (people, projects) = await entityRegistry.ListAsync();
+        var peopleResults = people.Select(static item => new ReactiveMemoryEntity(item.Name, item.Type)).ToList();
+        var projectResults = projects.Select(static item => new ReactiveMemoryEntity(item.Name, item.Type)).ToList();
+        return new EntityListResult(peopleResults, projectResults, peopleResults.Count + projectResults.Count);
     }
 
     /// <summary>

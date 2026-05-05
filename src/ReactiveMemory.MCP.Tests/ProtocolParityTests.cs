@@ -58,6 +58,8 @@ public class ProtocolParityTests
         await Assert.That(list!["result"]!.ToString()).Contains("reactivememory_status");
         await Assert.That(list!["result"]!.ToString()).Contains("reactivememory_react_to_prompt");
         await Assert.That(list!["result"]!.ToString()).Contains("reactivememory_hook_settings");
+        await Assert.That(list!["result"]!.ToString()).Contains("reactivememory_entities_lookup");
+        await Assert.That(list!["result"]!.ToString()).Contains("reactivememory_entities_list");
         await Assert.That(list!["result"]!.ToString()).Contains("reactivememory_list_tunnels");
         await Assert.That(unknown!["error"]!.ToString()).Contains("-32601");
     }

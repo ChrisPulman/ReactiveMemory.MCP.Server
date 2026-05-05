@@ -124,6 +124,32 @@ public sealed class EntityRegistry : IDisposable
         }
     }
 
+    /// <summary>
+    /// Returns all learned entity registry entries grouped by type.
+    /// </summary>
+    /// <returns>A task producing the current registry snapshot.</returns>
+    public async Task<(IReadOnlyList<RegistryLookupResult> People, IReadOnlyList<RegistryLookupResult> Projects)> ListAsync()
+    {
+        await gate.WaitAsync();
+        try
+        {
+            var state = await ReadUnsafeAsync();
+            var people = state.People.Values
+                .OrderBy(static item => item.Name, StringComparer.Ordinal)
+                .Select(static item => new RegistryLookupResult(item.Name, item.Type, true))
+                .ToList();
+            var projects = state.Projects.Values
+                .OrderBy(static item => item.Name, StringComparer.Ordinal)
+                .Select(static item => new RegistryLookupResult(item.Name, item.Type, true))
+                .ToList();
+            return (people, projects);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     private async Task<RegistryState> ReadUnsafeAsync()
     {
         var content = await File.ReadAllTextAsync(filePath);
