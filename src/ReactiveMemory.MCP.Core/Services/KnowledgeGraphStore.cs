@@ -1,6 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Data.Sqlite;
 using ReactiveMemory.MCP.Core.Models;
-using System.Diagnostics.CodeAnalysis;
 
 namespace ReactiveMemory.MCP.Core.Services;
 

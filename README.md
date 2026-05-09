@@ -2,22 +2,57 @@
 
 <!-- mcp-name: io.github.chrispulman/reactivememory-mcp-server -->
 
+<div align="center">
+  <img src="Images/reactive-memory-logo.png" style="width:25%;" />
+</div>
+
 ReactiveMemory MCP Server gives AI assistants a persistent, queryable, locally-stored memory system backed by vector search, a temporal knowledge graph, and a vault-structured content store. 
 It is designed to be the durable external memory layer for agents, copilots, and AI workflows that need to remember, reason over, and navigate accumulated knowledge across sessions.
 
-It is implemented in C# on `net10.0` using `ModelContextProtocol` `1.2.0`.
+It is implemented in C# on `net10.0` using `ModelContextProtocol` `1.3.0`.
 
 ## Quick Install
 
 Click to install in your preferred environment:
 
-[![VS Code - Install Reactive Memory MCP](https://img.shields.io/badge/VS_Code-Install_ReactiveMemory_MCP-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=reactivememory-mcp-server&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22dnx%22%2C%22args%22%3A%5B%22CP.ReactiveMemory.Mcp.Server%400.*%22%2C%22--yes%22%5D%7D)
-[![VS Code Insiders - Install Reactive Memory MCP](https://img.shields.io/badge/VS_Code_Insiders-Install_ReactiveMemory_MCP-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=reactivememory-mcp-server&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22dnx%22%2C%22args%22%3A%5B%22CP.ReactiveMemory.Mcp.Server%400.*%22%2C%22--yes%22%5D%7D&quality=insiders)
-[![Visual Studio - Install Reactive Memory MCP](https://img.shields.io/badge/Visual_Studio-Install_ReactiveMemory_MCP-5C2D91?style=flat-square&logo=visualstudio&logoColor=white)](https://vs-open.link/mcp-install?%7B%22name%22%3A%22CP.ReactiveMemory.Mcp.Server%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22dnx%22%2C%22args%22%3A%5B%22CP.ReactiveMemory.Mcp.Server%400.*%22%2C%22--yes%22%5D%7D)
+[![VS Code - Install Reactive Memory MCP](https://img.shields.io/badge/VS_Code-Install_ReactiveMemory_MCP-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=reactivememory-mcp-server&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22dnx%22%2C%22args%22%3A%5B%22CP.ReactiveMemory.Mcp.Server%401.*%22%2C%22--yes%22%5D%7D)
+[![VS Code Insiders - Install Reactive Memory MCP](https://img.shields.io/badge/VS_Code_Insiders-Install_ReactiveMemory_MCP-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=reactivememory-mcp-server&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22dnx%22%2C%22args%22%3A%5B%22CP.ReactiveMemory.Mcp.Server%401.*%22%2C%22--yes%22%5D%7D&quality=insiders)
+[![Visual Studio - Install Reactive Memory MCP](https://img.shields.io/badge/Visual_Studio-Install_ReactiveMemory_MCP-5C2D91?style=flat-square&logo=visualstudio&logoColor=white)](https://vs-open.link/mcp-install?%7B%22name%22%3A%22CP.ReactiveMemory.Mcp.Server%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22dnx%22%2C%22args%22%3A%5B%22CP.ReactiveMemory.Mcp.Server%401.*%22%2C%22--yes%22%5D%7D)
 
 Note:
 - These install links are prepared for the intended NuGet package identity `CP.ReactiveMemory.Mcp.Server`.
 - If the latest package has not been published yet, use the manual source-build configuration below.
+
+Manual MCP configuration using NuGet:
+
+```json
+{
+  "mcpServers": {
+    "reactivememory-mcp-server": {
+      "type": "stdio",
+      "command": "dnx",
+      "args": [
+        "CP.ReactiveMemory.Mcp.Server@1.*",
+        "--yes"
+      ]
+    }
+  }
+}
+```
+
+## Getting started
+
+1. Install the MCP server with the quick-install link or the `dnx` configuration above.
+2. Restart or reload your MCP-capable client so it discovers the `reactivememory_*` tools.
+3. Ask your assistant to call `reactivememory_status` to confirm the core path and current taxonomy.
+4. For memory-aware work, have the assistant call `reactivememory_react_to_prompt` at the start of each user prompt, then use `reactivememory_search_relays`, `reactivememory_search`, or `reactivememory_facts_query` before answering from memory.
+5. After meaningful work, store durable outcomes with `reactivememory_add_drawer` or `reactivememory_diary_write` rather than saving full transcripts.
+
+Minimal first prompt:
+
+```text
+Call reactivememory_status, then react to this prompt with reactivememory_react_to_prompt. Search for any prior memories about this repository before planning the work.
+```
 
 ## What ReactiveMemory helps with
 
@@ -64,6 +99,18 @@ ReactiveMemory organises everything into a four-level hierarchy:
 
 All storage is local and file-based — no external services or API keys are required.
 
+### Retention and performance design
+
+ReactiveMemory is designed to keep a project memory core useful for the lifetime of a project without turning it into a transcript dump.
+
+- **Compact writes:** `reactivememory_react_to_prompt` and `reactivememory_diary_write` should store concise summaries, decisions, facts, commands, paths, and outcomes rather than whole chats or terminal logs.
+- **Two retrieval layers:** `reactivememory_search_relays` searches compact routing hints first; `reactivememory_search` retrieves the full drawer content when the hint layer is not enough.
+- **Duplicate control:** exact normalized text matching is checked before vector candidates, and duplicate decisions require high lexical overlap to avoid storing repeated prompts or misclassifying unrelated memories.
+- **Fast local stores:** JSON stores are loaded into memory once, indexed by drawer/vector ID, and flushed atomically on mutation instead of rereading the full file for every query.
+- **Efficient search:** vector queries scan the in-memory index and keep only the top results during the scan instead of sorting every candidate.
+- **Stable local embeddings:** the default embedding provider uses deterministic token hashing with a wider vector space for repeatable local recall across sessions.
+- **Temporal truth:** changing facts should be invalidated and re-added in the knowledge graph, preserving what used to be true without bloating drawer memory.
+
 ## Agent protocol
 
 When this server is active, agents should follow the **ReactiveMemory Protocol**:
@@ -77,6 +124,28 @@ When this server is active, agents should follow the **ReactiveMemory Protocol**
 7. Call `reactivememory_check_duplicate` before storing repeated content when deduplication accuracy matters.
 8. Use `reactivememory_entities_lookup` and `reactivememory_entities_list` to inspect people/projects learned from prompt reactions.
 9. Use `reactivememory_hook_settings`, `reactivememory_memories_filed_away`, and `reactivememory_reconnect` when operating with automated checkpointing or external store changes.
+
+## Codex and agent skill
+
+This repository includes a Codex skill at [`skills/reactive-memory/SKILL.md`](skills/reactive-memory/SKILL.md). It gives Codex and other compatible agents a compact operating guide for using ReactiveMemory well:
+
+- search before relying on remembered facts
+- use Core, Sector, Vault, and Drawer concepts consistently
+- store durable memories as small, factual records
+- avoid full transcript, log, diff, secret, or temporary speculation dumps
+- use duplicate checks and fact invalidation before creating redundant or stale records
+- write concise handoff and diary memories after meaningful work
+
+To install the skill for Codex on Windows:
+
+```powershell
+$source = ".\skills\reactive-memory"
+$target = Join-Path $env:USERPROFILE ".codex\skills\reactive-memory"
+New-Item -ItemType Directory -Force $target | Out-Null
+Copy-Item -Path "$source\*" -Destination $target -Recurse -Force
+```
+
+Agents that support repository-local skills can use the file directly. Agents that do not support skills can still follow the workflow in `SKILL.md` as their memory protocol.
 
 ## Available MCP tools
 

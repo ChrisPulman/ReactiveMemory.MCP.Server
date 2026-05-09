@@ -55,23 +55,30 @@ public sealed class ProjectMiner : IDisposable
             .ToList();
 
         var count = 0;
-        foreach (var file in files)
+        try
         {
-            var lastWrite = File.GetLastWriteTimeUtc(file);
-            if (!await _fileIndex.ShouldMineAsync(file, lastWrite))
+            foreach (var file in files)
             {
-                continue;
-            }
+                var lastWrite = File.GetLastWriteTimeUtc(file);
+                if (!await _fileIndex.ShouldMineAsync(file, lastWrite))
+                {
+                    continue;
+                }
 
-            var content = await File.ReadAllTextAsync(file);
-            var vault = VaultRouter.DetectVault(file, content, vaults, projectRoot);
-            foreach (var chunk in TextChunker.Chunk(content))
-            {
-                await _service.AddDrawerAsync(sector, vault, chunk, file, "project_miner");
-                count++;
-            }
+                var content = await File.ReadAllTextAsync(file);
+                var vault = VaultRouter.DetectVault(file, content, vaults, projectRoot);
+                foreach (var chunk in TextChunker.Chunk(content))
+                {
+                    await _service.AddDrawerAsync(sector, vault, chunk, file, "project_miner");
+                    count++;
+                }
 
-            await _fileIndex.MarkMinedAsync(file, lastWrite);
+                await _fileIndex.MarkMinedAsync(file, lastWrite, deferFlush: true);
+            }
+        }
+        finally
+        {
+            await _fileIndex.FlushAsync();
         }
 
         return count;
