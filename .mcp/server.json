@@ -3,13 +3,13 @@
   "name": "io.github.chrispulman/reactivememory-mcp-server",
   "title": "ReactiveMemory MCP Server",
   "description": "ReactiveMemory MCP server with automatic per-prompt memory reaction, local vector-compatible storage, relays, explicit tunnels, temporal knowledge graph, and parity-oriented MCP tooling.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "packages": [
     {
       "registryType": "nuget",
       "registryBaseUrl": "https://api.nuget.org/v3/index.json",
       "identifier": "CP.ReactiveMemory.Mcp.Server",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "runtimeHint": "dnx",
       "transport": {
         "type": "stdio"
