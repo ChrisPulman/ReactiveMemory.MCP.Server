@@ -10,7 +10,7 @@
     <PackageProjectUrl>https://github.com/ChrisPulman/ReactiveMemory.MCP.Server</PackageProjectUrl>
     <RepositoryUrl>https://github.com/ChrisPulman/ReactiveMemory.MCP.Server</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageIcon>icon.jpg</PackageIcon>
+    <PackageIcon>reactive-memory-icon.png</PackageIcon>
     <PackageTags>ReactiveMemory;MCP;Model Context Protocol;C#;dotnet;knowledge graph;vector search</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>
