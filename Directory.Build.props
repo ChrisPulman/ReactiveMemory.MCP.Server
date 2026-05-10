@@ -7,6 +7,13 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Authors>Chris Pulman</Authors>
+    <PackageProjectUrl>https://github.com/ChrisPulman/ReactiveMemory.MCP.Server</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/ChrisPulman/ReactiveMemory.MCP.Server</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
