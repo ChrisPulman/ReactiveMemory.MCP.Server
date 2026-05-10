@@ -75,7 +75,7 @@ public static class ProtocolAdapter
                 {
                     protocolVersion = negotiated,
                     capabilities = new { tools = new { } },
-                    serverInfo = new { name = "reactivememory", version = "0.5.0" },
+                    serverInfo = new { name = "reactivememory", version = "1.0.0" },
                 }),
             };
         }

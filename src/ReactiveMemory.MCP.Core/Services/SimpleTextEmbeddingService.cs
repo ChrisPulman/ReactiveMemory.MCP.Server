@@ -5,7 +5,9 @@ namespace ReactiveMemory.MCP.Core.Services;
 /// </summary>
 public static class SimpleTextEmbeddingService
 {
-    private const int Dimensions = 64;
+    private const int Dimensions = 512;
+    private const ulong FnvOffsetBasis = 14695981039346656037UL;
+    private const ulong FnvPrime = 1099511628211UL;
 
     /// <summary>
     /// Generates a normalized embedding vector representing the specified text.
@@ -20,20 +22,16 @@ public static class SimpleTextEmbeddingService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
         var vector = new double[Dimensions];
-        var tokens = text.ToLowerInvariant().Split(default(string[]?), StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (tokens.Length == 0)
+        var tokenCount = 0;
+        foreach (var token in Tokenize(text))
         {
-            return vector;
-        }
-
-        foreach (var token in tokens)
-        {
-            var hash = token.GetHashCode(StringComparison.Ordinal);
-            var index = Math.Abs(hash % Dimensions);
+            var hash = StableHash(token);
+            var index = (int)(hash % Dimensions);
             vector[index] += 1.0;
+            tokenCount++;
         }
 
-        var magnitude = Math.Sqrt(vector.Sum(v => v * v));
+        var magnitude = tokenCount == 0 ? 0 : Math.Sqrt(vector.Sum(static v => v * v));
         if (magnitude > 0)
         {
             for (var i = 0; i < vector.Length; i++)
@@ -76,5 +74,41 @@ public static class SimpleTextEmbeddingService
         }
 
         return Math.Round(dot / (Math.Sqrt(leftMagnitude) * Math.Sqrt(rightMagnitude)), 3);
+    }
+
+    private static IEnumerable<string> Tokenize(string value)
+    {
+        var buffer = new List<char>(32);
+        foreach (var character in value)
+        {
+            if (char.IsLetterOrDigit(character) || character == '_')
+            {
+                buffer.Add(char.ToLowerInvariant(character));
+                continue;
+            }
+
+            if (buffer.Count > 0)
+            {
+                yield return new string(buffer.ToArray());
+                buffer.Clear();
+            }
+        }
+
+        if (buffer.Count > 0)
+        {
+            yield return new string(buffer.ToArray());
+        }
+    }
+
+    private static ulong StableHash(string value)
+    {
+        var hash = FnvOffsetBasis;
+        foreach (var character in value)
+        {
+            hash ^= character;
+            hash *= FnvPrime;
+        }
+
+        return hash;
     }
 }

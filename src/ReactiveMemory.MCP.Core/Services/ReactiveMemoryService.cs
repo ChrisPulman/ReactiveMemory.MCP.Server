@@ -1,11 +1,11 @@
+using System.Security.Cryptography;
+using System.Text;
 using ReactiveMemory.MCP.Core.Abstractions;
 using ReactiveMemory.MCP.Core.Configuration;
 using ReactiveMemory.MCP.Core.Constants;
 using ReactiveMemory.MCP.Core.Entities;
 using ReactiveMemory.MCP.Core.Models;
 using ReactiveMemory.MCP.Core.Storage;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace ReactiveMemory.MCP.Core.Services;
 
@@ -205,12 +205,32 @@ public sealed class ReactiveMemoryService
     public async Task<DuplicateCheckResult> CheckDuplicateAsync(string content, double threshold)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(content);
-        var vectorResults = await vectorStore.QueryAsync(content, 10);
+        var boundedThreshold = double.IsNaN(threshold) ? 0.9 : Math.Clamp(threshold, 0, 1);
+        var normalizedContent = NormalizeForDuplicate(content);
+        var exactMatches = (await drawerStore.GetAllAsync())
+            .Where(drawer => string.Equals(NormalizeForDuplicate(drawer.Text), normalizedContent, StringComparison.Ordinal))
+            .Select(drawer => new DuplicateMatch(
+                drawer.Id,
+                drawer.Sector,
+                drawer.Vault,
+                1.0,
+                drawer.Text.Length <= 80 ? drawer.Text : drawer.Text[..80]))
+            .ToList();
+
+        if (exactMatches.Count > 0)
+        {
+            return new DuplicateCheckResult(true, boundedThreshold, exactMatches);
+        }
+
+        var vectorResults = await vectorStore.QueryAsync(content, 50);
         var matches = new List<DuplicateMatch>(vectorResults.Hits.Count);
+        var requiredLexicalScore = Math.Min(0.85, Math.Max(0.55, boundedThreshold));
         for (var i = 0; i < vectorResults.Hits.Count; i++)
         {
             var hit = vectorResults.Hits[i];
-            if (hit.Similarity < threshold)
+            var lexicalScore = DuplicateLexicalScore(normalizedContent, NormalizeForDuplicate(hit.Content));
+            var duplicateScore = Math.Max(hit.Similarity, lexicalScore);
+            if (duplicateScore < boundedThreshold || lexicalScore < requiredLexicalScore)
             {
                 continue;
             }
@@ -219,11 +239,11 @@ public sealed class ReactiveMemoryService
                 hit.Id,
                 GetMetadataValue(hit.Metadata, "sector"),
                 GetMetadataValue(hit.Metadata, "vault"),
-                hit.Similarity,
+                duplicateScore,
                 hit.Content.Length <= 80 ? hit.Content : hit.Content[..80]));
         }
 
-        return new DuplicateCheckResult(matches.Count > 0, threshold, matches);
+        return new DuplicateCheckResult(matches.Count > 0, boundedThreshold, matches);
     }
 
     /// <summary>
@@ -255,11 +275,14 @@ public sealed class ReactiveMemoryService
 
         var existing = await drawerStore.AddAsync(entry);
         var stored = existing ?? entry;
+        if (existing is not null)
+        {
+            return new AddDrawerResult(true, stored.Id, stored.Sector, stored.Vault, "already_exists");
+        }
+
         await UpsertDrawerVectorAsync(stored);
         await UpsertRelayAsync(stored);
-        var result = existing is null
-            ? new AddDrawerResult(true, stored.Id, stored.Sector, stored.Vault)
-            : new AddDrawerResult(true, stored.Id, stored.Sector, stored.Vault, "already_exists");
+        var result = new AddDrawerResult(true, stored.Id, stored.Sector, stored.Vault);
         await writeAheadLog.AppendAsync("add_drawer", new { sector = normalizedSector, vault = normalizedVault, content = normalizedContent, sourceFile, addedBy }, result);
         return result;
     }
@@ -812,6 +835,58 @@ public sealed class ReactiveMemoryService
         }
 
         return value.Trim();
+    }
+
+    private static string NormalizeForDuplicate(string value)
+        => string.Join(' ', TokenizeForComparison(value));
+
+    private static double DuplicateLexicalScore(string normalizedContent, string normalizedCandidate)
+    {
+        if (string.Equals(normalizedContent, normalizedCandidate, StringComparison.Ordinal))
+        {
+            return 1.0;
+        }
+
+        if (normalizedContent.Length > 0 &&
+            normalizedCandidate.Length > 0 &&
+            (normalizedCandidate.Contains(normalizedContent, StringComparison.Ordinal) || normalizedContent.Contains(normalizedCandidate, StringComparison.Ordinal)))
+        {
+            return 0.99;
+        }
+
+        var contentTerms = normalizedContent.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var candidateTerms = normalizedCandidate.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+        if (contentTerms.Length == 0 || candidateTerms.Count == 0)
+        {
+            return 0;
+        }
+
+        var matched = contentTerms.Count(candidateTerms.Contains);
+        return Math.Round((double)matched / contentTerms.Length, 3);
+    }
+
+    private static IEnumerable<string> TokenizeForComparison(string value)
+    {
+        var buffer = new List<char>(32);
+        foreach (var character in value)
+        {
+            if (char.IsLetterOrDigit(character) || character == '_')
+            {
+                buffer.Add(char.ToLowerInvariant(character));
+                continue;
+            }
+
+            if (buffer.Count > 0)
+            {
+                yield return new string(buffer.ToArray());
+                buffer.Clear();
+            }
+        }
+
+        if (buffer.Count > 0)
+        {
+            yield return new string(buffer.ToArray());
+        }
     }
 
     private static string CreateEntryId(string sector, string vault, string content)

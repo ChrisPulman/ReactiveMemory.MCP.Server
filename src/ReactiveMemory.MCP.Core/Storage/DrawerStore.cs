@@ -1,6 +1,6 @@
+using System.Text.Json;
 using ReactiveMemory.MCP.Core.Configuration;
 using ReactiveMemory.MCP.Core.Models;
-using System.Text.Json;
 
 namespace ReactiveMemory.MCP.Core.Storage;
 
@@ -12,6 +12,8 @@ public sealed class DrawerStore : IDisposable
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private readonly string filePath;
     private readonly SemaphoreSlim gate = new(1, 1);
+    private List<DrawerRecord>? records;
+    private Dictionary<string, DrawerRecord>? recordsById;
     private bool disposed;
 
     /// <summary>
@@ -51,9 +53,19 @@ public sealed class DrawerStore : IDisposable
     /// </summary>
     public async Task InitializeAsync()
     {
-        if (!File.Exists(filePath))
+        await gate.WaitAsync();
+        try
         {
-            await File.WriteAllTextAsync(filePath, "[]");
+            if (!File.Exists(filePath))
+            {
+                await WriteFileUnsafeAsync(new List<DrawerRecord>());
+            }
+
+            await LoadUnsafeAsync();
+        }
+        finally
+        {
+            gate.Release();
         }
     }
 
@@ -65,7 +77,8 @@ public sealed class DrawerStore : IDisposable
         await gate.WaitAsync();
         try
         {
-            return await ReadUnsafeAsync();
+            await EnsureLoadedUnsafeAsync();
+            return records!.ToList();
         }
         finally
         {
@@ -82,17 +95,15 @@ public sealed class DrawerStore : IDisposable
         await gate.WaitAsync();
         try
         {
-            var items = await ReadUnsafeAsync();
-            for (var i = 0; i < items.Count; i++)
+            await EnsureLoadedUnsafeAsync();
+            if (recordsById!.TryGetValue(drawer.Id, out var existing))
             {
-                if (string.Equals(items[i].Id, drawer.Id, StringComparison.Ordinal))
-                {
-                    return items[i];
-                }
+                return existing;
             }
 
-            items.Add(drawer);
-            await WriteUnsafeAsync(items);
+            records!.Add(drawer);
+            recordsById[drawer.Id] = drawer;
+            await FlushUnsafeAsync();
             return null;
         }
         finally
@@ -110,8 +121,8 @@ public sealed class DrawerStore : IDisposable
         await gate.WaitAsync();
         try
         {
-            var items = await ReadUnsafeAsync();
-            return items.FirstOrDefault(item => string.Equals(item.Id, drawerId, StringComparison.Ordinal));
+            await EnsureLoadedUnsafeAsync();
+            return recordsById!.TryGetValue(drawerId, out var drawer) ? drawer : null;
         }
         finally
         {
@@ -128,16 +139,22 @@ public sealed class DrawerStore : IDisposable
         await gate.WaitAsync();
         try
         {
-            var items = await ReadUnsafeAsync();
-            for (var i = 0; i < items.Count; i++)
+            await EnsureLoadedUnsafeAsync();
+            if (!recordsById!.ContainsKey(drawer.Id))
             {
-                if (!string.Equals(items[i].Id, drawer.Id, StringComparison.Ordinal))
+                return false;
+            }
+
+            for (var i = 0; i < records!.Count; i++)
+            {
+                if (!string.Equals(records[i].Id, drawer.Id, StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                items[i] = drawer;
-                await WriteUnsafeAsync(items);
+                records[i] = drawer;
+                recordsById[drawer.Id] = drawer;
+                await FlushUnsafeAsync();
                 return true;
             }
 
@@ -158,26 +175,25 @@ public sealed class DrawerStore : IDisposable
         await gate.WaitAsync();
         try
         {
-            var items = await ReadUnsafeAsync();
-            var removed = false;
-            for (var i = items.Count - 1; i >= 0; i--)
+            await EnsureLoadedUnsafeAsync();
+            if (!recordsById!.Remove(drawerId))
             {
-                if (!string.Equals(items[i].Id, drawerId, StringComparison.Ordinal))
+                return false;
+            }
+
+            for (var i = records!.Count - 1; i >= 0; i--)
+            {
+                if (!string.Equals(records[i].Id, drawerId, StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                items.RemoveAt(i);
-                removed = true;
+                records.RemoveAt(i);
                 break;
             }
 
-            if (removed)
-            {
-                await WriteUnsafeAsync(items);
-            }
-
-            return removed;
+            await FlushUnsafeAsync();
+            return true;
         }
         finally
         {
@@ -185,21 +201,62 @@ public sealed class DrawerStore : IDisposable
         }
     }
 
-    private async Task<List<DrawerRecord>> ReadUnsafeAsync()
+    private async Task EnsureLoadedUnsafeAsync()
+    {
+        if (records is null || recordsById is null)
+        {
+            await LoadUnsafeAsync();
+        }
+    }
+
+    private async Task LoadUnsafeAsync()
     {
         if (!File.Exists(filePath))
         {
-            return [];
+            records = [];
+            recordsById = new Dictionary<string, DrawerRecord>(StringComparer.Ordinal);
+            return;
         }
 
-        var content = await File.ReadAllTextAsync(filePath);
-        return JsonSerializer.Deserialize<List<DrawerRecord>>(content, JsonOptions) ?? [];
+        try
+        {
+            var content = await File.ReadAllTextAsync(filePath);
+            records = JsonSerializer.Deserialize<List<DrawerRecord>>(content, JsonOptions) ?? [];
+            recordsById = records.ToDictionary(static record => record.Id, StringComparer.Ordinal);
+        }
+        catch (JsonException ex)
+        {
+            var corruptPath = PreserveCorruptFile();
+            throw new InvalidOperationException($"Drawer store is not valid JSON. The unreadable file was preserved at '{corruptPath}'.", ex);
+        }
     }
 
-    private async Task WriteUnsafeAsync(List<DrawerRecord> items)
+    private async Task FlushUnsafeAsync()
     {
-        ArgumentNullException.ThrowIfNull(items);
-        var content = JsonSerializer.Serialize(items, JsonOptions);
-        await File.WriteAllTextAsync(filePath, content);
+        await WriteFileUnsafeAsync(records ?? []);
+    }
+
+    private async Task WriteFileUnsafeAsync(List<DrawerRecord> items)
+    {
+        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
+        await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 16 * 1024, FileOptions.WriteThrough))
+        {
+            await JsonSerializer.SerializeAsync(stream, items, JsonOptions);
+            await stream.FlushAsync();
+        }
+
+        File.Move(tempPath, filePath, overwrite: true);
+    }
+
+    private string PreserveCorruptFile()
+    {
+        var corruptPath = $"{filePath}.corrupt";
+        if (File.Exists(corruptPath))
+        {
+            corruptPath = $"{filePath}.{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.corrupt";
+        }
+
+        File.Copy(filePath, corruptPath, overwrite: false);
+        return corruptPath;
     }
 }

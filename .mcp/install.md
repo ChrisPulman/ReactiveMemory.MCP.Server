@@ -9,7 +9,12 @@ Suggested stdio config:
 {
   "mcpServers": {
     "reactivememory-mcp-server": {
-      "command": "dotnet-reactivememory-mcp-server"
+      "type": "stdio",
+      "command": "dnx",
+      "args": [
+        "CP.ReactiveMemory.Mcp.Server@1.*",
+        "--yes"
+      ]
     }
   }
 }
@@ -25,7 +30,7 @@ Alternative source-run config:
       "args": [
         "run",
         "--project",
-        "/path/to/ReactiveMemory.MCP.Server/src/ReactiveMemory.MCP.Server/ReactiveMemory.MCP.Server.csproj"
+        "/path/to/ReactiveMemory.MCP.Server/src/ReactiveMemory.MCP.Server/CP.ReactiveMemory.MCP.Server.csproj"
       ]
     }
   }

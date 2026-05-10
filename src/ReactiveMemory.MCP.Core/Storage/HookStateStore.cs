@@ -1,5 +1,5 @@
-using ReactiveMemory.MCP.Core.Configuration;
 using System.Text.Json;
+using ReactiveMemory.MCP.Core.Configuration;
 
 namespace ReactiveMemory.MCP.Core.Storage;
 

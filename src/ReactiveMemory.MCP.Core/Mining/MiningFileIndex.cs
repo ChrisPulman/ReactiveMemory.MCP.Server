@@ -10,6 +10,8 @@ public sealed class MiningFileIndex : IDisposable
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private readonly string filePath;
     private readonly SemaphoreSlim gate = new(1, 1);
+    private Dictionary<string, string>? state;
+    private bool dirty;
     private bool disposed;
 
     /// <summary>
@@ -49,9 +51,19 @@ public sealed class MiningFileIndex : IDisposable
     /// <returns>A task that represents the asynchronous initialization operation.</returns>
     public async Task InitializeAsync()
     {
-        if (!File.Exists(filePath))
+        await gate.WaitAsync();
+        try
         {
-            await File.WriteAllTextAsync(filePath, "{}");
+            if (!File.Exists(filePath))
+            {
+                await WriteFileUnsafeAsync(new Dictionary<string, string>(StringComparer.Ordinal));
+            }
+
+            await EnsureLoadedUnsafeAsync();
+        }
+        finally
+        {
+            gate.Release();
         }
     }
 
@@ -70,8 +82,8 @@ public sealed class MiningFileIndex : IDisposable
         await gate.WaitAsync();
         try
         {
-            var state = await ReadUnsafeAsync();
-            return !state.TryGetValue(filePath, out var stored) || !string.Equals(stored, lastWriteTimeUtc.ToString("O"), StringComparison.Ordinal);
+            await EnsureLoadedUnsafeAsync();
+            return !state!.TryGetValue(filePath, out var stored) || !string.Equals(stored, lastWriteTimeUtc.ToString("O"), StringComparison.Ordinal);
         }
         finally
         {
@@ -86,16 +98,21 @@ public sealed class MiningFileIndex : IDisposable
     /// the file has been mined at the specified time.</remarks>
     /// <param name="filePath">The path of the file to mark as mined. Cannot be null, empty, or consist only of white-space characters.</param>
     /// <param name="lastWriteTimeUtc">The last write time of the file, expressed as a UTC value.</param>
+    /// <param name="deferFlush">Whether to update the in-memory index without immediately flushing the JSON file.</param>
     /// <returns></returns>
-    public async Task MarkMinedAsync(string filePath, DateTimeOffset lastWriteTimeUtc)
+    public async Task MarkMinedAsync(string filePath, DateTimeOffset lastWriteTimeUtc, bool deferFlush = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
         await gate.WaitAsync();
         try
         {
-            var state = await ReadUnsafeAsync();
-            state[filePath] = lastWriteTimeUtc.ToString("O");
-            await WriteUnsafeAsync(state);
+            await EnsureLoadedUnsafeAsync();
+            state![filePath] = lastWriteTimeUtc.ToString("O");
+            dirty = true;
+            if (!deferFlush)
+            {
+                await FlushUnsafeAsync();
+            }
         }
         finally
         {
@@ -103,11 +120,83 @@ public sealed class MiningFileIndex : IDisposable
         }
     }
 
-    private async Task<Dictionary<string, string>> ReadUnsafeAsync()
+    /// <summary>
+    /// Flushes pending index updates to disk.
+    /// </summary>
+    public async Task FlushAsync()
     {
-        var content = await File.ReadAllTextAsync(filePath);
-        return JsonSerializer.Deserialize<Dictionary<string, string>>(content, JsonOptions) ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        await gate.WaitAsync();
+        try
+        {
+            await EnsureLoadedUnsafeAsync();
+            await FlushUnsafeAsync();
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
-    private async Task WriteUnsafeAsync(Dictionary<string, string> state) => await File.WriteAllTextAsync(filePath, JsonSerializer.Serialize(state, JsonOptions));
+    private async Task EnsureLoadedUnsafeAsync()
+    {
+        if (state is not null)
+        {
+            return;
+        }
+
+        if (!File.Exists(filePath))
+        {
+            state = new Dictionary<string, string>(StringComparer.Ordinal);
+            dirty = false;
+            return;
+        }
+
+        try
+        {
+            var content = await File.ReadAllTextAsync(filePath);
+            state = JsonSerializer.Deserialize<Dictionary<string, string>>(content, JsonOptions) ?? new Dictionary<string, string>(StringComparer.Ordinal);
+            state = new Dictionary<string, string>(state, StringComparer.Ordinal);
+            dirty = false;
+        }
+        catch (JsonException ex)
+        {
+            var corruptPath = PreserveCorruptFile();
+            throw new InvalidOperationException($"Mining file index is not valid JSON. The unreadable file was preserved at '{corruptPath}'.", ex);
+        }
+    }
+
+    private async Task FlushUnsafeAsync()
+    {
+        if (!dirty || state is null)
+        {
+            return;
+        }
+
+        await WriteFileUnsafeAsync(state);
+        dirty = false;
+    }
+
+    private async Task WriteFileUnsafeAsync(Dictionary<string, string> state)
+    {
+        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
+        await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 16 * 1024, FileOptions.WriteThrough))
+        {
+            await JsonSerializer.SerializeAsync(stream, state, JsonOptions);
+            await stream.FlushAsync();
+        }
+
+        File.Move(tempPath, filePath, overwrite: true);
+    }
+
+    private string PreserveCorruptFile()
+    {
+        var corruptPath = $"{filePath}.corrupt";
+        if (File.Exists(corruptPath))
+        {
+            corruptPath = $"{filePath}.{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.corrupt";
+        }
+
+        File.Copy(filePath, corruptPath, overwrite: false);
+        return corruptPath;
+    }
 }
