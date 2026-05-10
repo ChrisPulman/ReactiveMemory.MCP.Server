@@ -5,15 +5,7 @@
     <PackageId>CP.ReactiveMemory.Mcp.Core</PackageId>
     <Title>ReactiveMemory MCP Core</Title>
     <Description>Core storage, mining, vector-compatible search, relays, tunnels, entities, and temporal knowledge graph services for ReactiveMemory MCP.</Description>
-    <Authors>Chris Pulman</Authors>
-    <PackageProjectUrl>https://github.com/ChrisPulman/ReactiveMemory.MCP.Server</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/ChrisPulman/ReactiveMemory.MCP.Server</RepositoryUrl>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageIcon>icon.jpg</PackageIcon>
     <PackageTags>ReactiveMemory;MCP;Model Context Protocol;C#;dotnet;knowledge graph;vector search</PackageTags>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryType>git</RepositoryType>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,7 +15,6 @@
 
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="" Link="README.md" />
-    <None Include="..\..\icon.jpg" Pack="true" PackagePath="" Link="icon.jpg" />
     <None Include="..\..\Images\reactive-memory-icon.png" Pack="true" PackagePath="Images\" Link="Images\reactive-memory-icon.png" />
     <None Include="..\..\Images\reactive-memory-logo.png" Pack="true" PackagePath="Images\" Link="Images\reactive-memory-logo.png" />
     <None Include="..\..\skills\reactive-memory\SKILL.md" Pack="true" PackagePath="skills\reactive-memory\" Link="skills\reactive-memory\SKILL.md" />
