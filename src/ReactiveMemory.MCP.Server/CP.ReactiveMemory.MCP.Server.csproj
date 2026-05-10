@@ -10,7 +10,7 @@
     <PackageProjectUrl>https://github.com/ChrisPulman/ReactiveMemory.MCP.Server</PackageProjectUrl>
     <RepositoryUrl>https://github.com/ChrisPulman/ReactiveMemory.MCP.Server</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageIcon>Images/reactive-memory-icon.png</PackageIcon>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageTags>ReactiveMemory;MCP;Model Context Protocol;C#;dotnet;knowledge graph;vector search</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>
@@ -31,6 +31,7 @@
 
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="" Link="README.md" />
+    <None Include="..\..\icon.png" Pack="true" PackagePath="" Link="icon.png" />
     <None Include="..\..\Images\reactive-memory-icon.png" Pack="true" PackagePath="Images\" Link="Images\reactive-memory-icon.png" />
     <None Include="..\..\Images\reactive-memory-logo.png" Pack="true" PackagePath="Images\" Link="Images\reactive-memory-logo.png" />
     <None Include="..\..\skills\reactive-memory\SKILL.md" Pack="true" PackagePath="skills\reactive-memory\" Link="skills\reactive-memory\SKILL.md" />
