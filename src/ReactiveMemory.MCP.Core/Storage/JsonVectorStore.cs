@@ -84,7 +84,7 @@ public sealed class JsonVectorStore : IVectorStore, IDisposable
         try
         {
             await EnsureLoadedUnsafeAsync();
-            var embedded = record.Embedding is null ? record with { Embedding = embeddingProvider.Embed(record.Content) } : record;
+            var embedded = StampEmbeddingProfile(record.Embedding is null ? record with { Embedding = embeddingProvider.Embed(record.Content) } : record);
             if (recordsById!.ContainsKey(record.Id))
             {
                 for (var i = 0; i < records!.Count; i++)
@@ -182,7 +182,7 @@ public sealed class JsonVectorStore : IVectorStore, IDisposable
                     continue;
                 }
 
-                var vectorSimilarity = embeddingProvider.Similarity(queryEmbedding, item.Embedding ?? embeddingProvider.Embed(item.Content));
+                var vectorSimilarity = embeddingProvider.Similarity(queryEmbedding, ResolveQueryableEmbedding(item));
                 var lexicalSimilarity = TokenOverlap(queryText, item.Content);
                 var similarity = Math.Round(Math.Max(vectorSimilarity, (vectorSimilarity * 0.65) + (lexicalSimilarity * 0.35)), 3);
                 if (similarity <= 0)
@@ -222,6 +222,48 @@ public sealed class JsonVectorStore : IVectorStore, IDisposable
         }
 
         return true;
+    }
+
+    private VectorRecord StampEmbeddingProfile(VectorRecord record)
+    {
+        var dimensions = record.Embedding?.Count ?? embeddingProvider.Dimensions;
+        return record with
+        {
+            EmbeddingProviderId = string.IsNullOrWhiteSpace(record.EmbeddingProviderId) ? embeddingProvider.ProviderId : record.EmbeddingProviderId,
+            EmbeddingVersion = record.EmbeddingVersion ?? embeddingProvider.Version,
+            EmbeddingDimensions = record.EmbeddingDimensions ?? dimensions,
+        };
+    }
+
+    private IReadOnlyList<double> ResolveQueryableEmbedding(VectorRecord record)
+    {
+        if (record.Embedding is null)
+        {
+            return embeddingProvider.Embed(record.Content);
+        }
+
+        if (IsEmbeddingCompatible(record))
+        {
+            return record.Embedding;
+        }
+
+        return embeddingProvider.Embed(record.Content);
+    }
+
+    private bool IsEmbeddingCompatible(VectorRecord record)
+    {
+        if (record.Embedding is null)
+        {
+            return false;
+        }
+
+        var providerId = string.IsNullOrWhiteSpace(record.EmbeddingProviderId) ? "Hash" : record.EmbeddingProviderId;
+        var version = record.EmbeddingVersion ?? 1;
+        var dimensions = record.EmbeddingDimensions ?? record.Embedding.Count;
+        return string.Equals(providerId, embeddingProvider.ProviderId, StringComparison.OrdinalIgnoreCase)
+            && version == embeddingProvider.Version
+            && dimensions == embeddingProvider.Dimensions
+            && record.Embedding.Count == embeddingProvider.Dimensions;
     }
 
     private static void AddTopHit(List<VectorQueryHit> hits, VectorQueryHit hit, int limit)

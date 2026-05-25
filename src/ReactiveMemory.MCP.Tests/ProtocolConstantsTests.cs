@@ -15,6 +15,14 @@ public class ProtocolConstantsTests
         await Assert.That(coreProtocol).Contains("reactivememory_facts_query");
         await Assert.That(coreProtocol).Contains("reactivememory_diary_write");
         await Assert.That(coreProtocol).Contains("reactivememory_react_to_prompt");
+        await Assert.That(coreProtocol).Contains("reactivememory_memory_add");
+        await Assert.That(coreProtocol).Contains("reactivememory_memory_get_relevant");
+        await Assert.That(coreProtocol).Contains("reactivememory_memory_summarise");
+        await Assert.That(coreProtocol).Contains("reactivememory_memory_prune");
+        await Assert.That(coreProtocol).Contains("reactivememory_memory_automanage");
+        await Assert.That(coreProtocol).Contains("memory.add");
+        await Assert.That(coreProtocol).Contains("memory.getRelevant");
+        await Assert.That(coreProtocol).Contains("memory.automanage");
     }
 
     [Test]

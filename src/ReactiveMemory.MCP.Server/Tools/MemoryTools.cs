@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using ReactiveMemory.MCP.Core.Models;
 using ReactiveMemory.MCP.Core.Services;
 using ReactiveMemory.MCP.Core.Tools;
 using ReactiveMemory.MCP.Server.Serialization;
@@ -17,6 +18,13 @@ public sealed class MemoryTools
     {
         ArgumentNullException.ThrowIfNull(service);
         return JsonOutput.Serialize(ReactiveMemoryTools.Status(service));
+    }
+
+    [McpServerTool(Name = "reactivememory_local_model_status"), Description("Optional local model/NPU runtime status; safe when ONNX Runtime and model files are absent")]
+    public static string LocalModelStatus(ReactiveMemoryService service)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return JsonOutput.Serialize(ReactiveMemoryTools.LocalModelStatus(service));
     }
 
     [McpServerTool(Name = "reactivememory_list_sectors"), Description("List all sectors with drawer counts")]
@@ -62,6 +70,55 @@ public sealed class MemoryTools
     {
         ArgumentNullException.ThrowIfNull(service);
         return JsonOutput.Serialize(await ReactiveMemoryTools.CheckDuplicateAsync(service, content, threshold));
+    }
+
+    [McpServerTool(Name = "reactivememory_memory_classify"), Description("Classify a message as preference, long-term fact, short-term context, irrelevant, or sensitive/do-not-store")]
+    public static async Task<string> ClassifyMemoryAsync(ReactiveMemoryService service, string content)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return JsonOutput.Serialize(await ReactiveMemoryTools.ClassifyMemoryAsync(service, content));
+    }
+
+    [McpServerTool(Name = "reactivememory_memory_should_store"), Description("Return a conservative should-store decision without writing memory")]
+    public static async Task<string> ShouldStoreMemoryAsync(ReactiveMemoryService service, string content)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return JsonOutput.Serialize(await ReactiveMemoryTools.ShouldStoreMemoryAsync(service, content));
+    }
+
+    [McpServerTool(Name = "reactivememory_memory_add"), Description("memory.add alias: classify content, reject sensitive/irrelevant input, then store with category/vector metadata")]
+    public static async Task<string> AddMemoryAsync(ReactiveMemoryService service, string content, string? agentName = null, string? sector = null, string? vault = null)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return JsonOutput.Serialize(await ReactiveMemoryTools.AddMemoryAsync(service, content, agentName, sector, vault));
+    }
+
+    [McpServerTool(Name = "reactivememory_memory_get_relevant"), Description("memory.getRelevant alias: semantic search over managed memories")]
+    public static async Task<string> GetRelevantMemoryAsync(ReactiveMemoryService service, string query, int limit = 5, MemoryClassificationCategory? category = null)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return JsonOutput.Serialize(await ReactiveMemoryTools.GetRelevantMemoryAsync(service, query, limit, category));
+    }
+
+    [McpServerTool(Name = "reactivememory_memory_summarise"), Description("memory.summarise alias: summarise memories using optional local model or deterministic fallback")]
+    public static async Task<string> SummariseMemoriesAsync(ReactiveMemoryService service, string[] memories, MemoryClassificationCategory? category = null)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return JsonOutput.Serialize(await ReactiveMemoryTools.SummariseMemoriesAsync(service, memories, category));
+    }
+
+    [McpServerTool(Name = "reactivememory_memory_prune"), Description("memory.prune alias: recommend safe pruning by default; delete only when apply is true")]
+    public static async Task<string> PruneMemoryAsync(ReactiveMemoryService service, bool apply = false, double duplicateThreshold = 0.92)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return JsonOutput.Serialize(await ReactiveMemoryTools.PruneMemoryAsync(service, apply, duplicateThreshold));
+    }
+
+    [McpServerTool(Name = "reactivememory_memory_automanage"), Description("memory.automanage alias: classify -> skip sensitive/irrelevant -> embed/store -> summarise-if-large -> prune recommendations")]
+    public static async Task<string> AutoManageMemoryAsync(ReactiveMemoryService service, string content, string? agentName = null, string? sector = null, string? vault = null, bool summariseIfLarge = true, bool prune = true)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return JsonOutput.Serialize(await ReactiveMemoryTools.AutoManageMemoryAsync(service, content, agentName, sector, vault, summariseIfLarge, prune));
     }
 
     [McpServerTool(Name = "reactivememory_add_drawer"), Description("File verbatim content into the core")]

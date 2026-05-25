@@ -6,6 +6,21 @@ namespace ReactiveMemory.MCP.Core.Abstractions;
 public interface IEmbeddingProvider
 {
     /// <summary>
+    /// Gets the stable provider identifier persisted with generated vectors.
+    /// </summary>
+    string ProviderId { get; }
+
+    /// <summary>
+    /// Gets the provider-specific embedding algorithm/model version.
+    /// </summary>
+    int Version { get; }
+
+    /// <summary>
+    /// Gets the number of values produced by <see cref="Embed"/>.
+    /// </summary>
+    int Dimensions { get; }
+
+    /// <summary>
     /// Generates a vector representation (embedding) for the specified text.
     /// </summary>
     /// <param name="text">The input text to embed. Cannot be null or empty.</param>

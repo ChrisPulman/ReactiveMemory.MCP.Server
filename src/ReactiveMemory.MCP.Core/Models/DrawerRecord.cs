@@ -16,4 +16,5 @@ public sealed record DrawerRecord(
     string? Topic = null,
     string? Type = null,
     string? Agent = null,
-    int ChunkIndex = 0);
+    int ChunkIndex = 0,
+    string? ClassificationCategory = null);

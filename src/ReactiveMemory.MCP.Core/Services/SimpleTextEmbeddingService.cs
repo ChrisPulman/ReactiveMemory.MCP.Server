@@ -5,7 +5,12 @@ namespace ReactiveMemory.MCP.Core.Services;
 /// </summary>
 public static class SimpleTextEmbeddingService
 {
-    private const int Dimensions = 512;
+    /// <summary>
+    /// Stable dimensionality for deterministic hash embeddings.
+    /// </summary>
+    public const int VectorDimensions = 512;
+
+    private const int Dimensions = VectorDimensions;
     private const ulong FnvOffsetBasis = 14695981039346656037UL;
     private const ulong FnvPrime = 1099511628211UL;
 

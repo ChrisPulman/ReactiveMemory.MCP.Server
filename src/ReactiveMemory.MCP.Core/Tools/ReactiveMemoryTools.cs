@@ -15,6 +15,12 @@ public static class ReactiveMemoryTools
         return service.StatusAsync().GetAwaiter().GetResult();
     }
 
+    public static LocalModelStatusResult LocalModelStatus(ReactiveMemoryService service)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return service.LocalModelStatus();
+    }
+
     public static SectorsResult ListSectors(ReactiveMemoryService service)
     {
         ArgumentNullException.ThrowIfNull(service);
@@ -51,6 +57,48 @@ public static class ReactiveMemoryTools
     {
         ArgumentNullException.ThrowIfNull(service);
         return service.CheckDuplicateAsync(content, threshold);
+    }
+
+    public static Task<MemoryClassificationResult> ClassifyMemoryAsync(ReactiveMemoryService service, string content)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return service.ClassifyMemoryAsync(content);
+    }
+
+    public static Task<ShouldStoreMemoryResult> ShouldStoreMemoryAsync(ReactiveMemoryService service, string content)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return service.ShouldStoreMemoryAsync(content);
+    }
+
+    public static Task<AutoManageMemoryResult> AddMemoryAsync(ReactiveMemoryService service, string content, string? agentName = null, string? sector = null, string? vault = null)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return service.AddMemoryAsync(content, agentName, sector, vault);
+    }
+
+    public static Task<SearchResult> GetRelevantMemoryAsync(ReactiveMemoryService service, string query, int limit = 5, MemoryClassificationCategory? category = null)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return service.GetRelevantMemoryAsync(query, limit, category);
+    }
+
+    public static Task<MemorySummaryResult> SummariseMemoriesAsync(ReactiveMemoryService service, IEnumerable<string> memories, MemoryClassificationCategory? category = null)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return service.SummariseMemoriesAsync(memories, category);
+    }
+
+    public static Task<MemoryPruneResult> PruneMemoryAsync(ReactiveMemoryService service, bool apply = false, double duplicateThreshold = 0.92)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return service.PruneMemoryAsync(apply, duplicateThreshold);
+    }
+
+    public static Task<AutoManageMemoryResult> AutoManageMemoryAsync(ReactiveMemoryService service, string content, string? agentName = null, string? sector = null, string? vault = null, bool summariseIfLarge = true, bool prune = true)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        return service.AutoManageMemoryAsync(content, agentName, sector, vault, summariseIfLarge, prune);
     }
 
     public static Task<AddDrawerResult> AddDrawerAsync(ReactiveMemoryService service, string sector, string vault, string content, string? sourceFile = null, string? addedBy = null)

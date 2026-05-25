@@ -45,6 +45,12 @@ public class EmbeddingAndIncrementalMiningTests
     {
         public int Calls { get; private set; }
 
+        public string ProviderId => "Constant";
+
+        public int Version => 1;
+
+        public int Dimensions => 3;
+
         public IReadOnlyList<double> Embed(string text)
         {
             Calls++;

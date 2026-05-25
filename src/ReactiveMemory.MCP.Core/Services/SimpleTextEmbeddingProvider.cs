@@ -7,6 +7,15 @@ namespace ReactiveMemory.MCP.Core.Services;
 /// </summary>
 public sealed class SimpleTextEmbeddingProvider : IEmbeddingProvider
 {
+    /// <inheritdoc />
+    public string ProviderId => "Hash";
+
+    /// <inheritdoc />
+    public int Version => 1;
+
+    /// <inheritdoc />
+    public int Dimensions => SimpleTextEmbeddingService.VectorDimensions;
+
     /// <summary>
     /// Generates a vector embedding that represents the specified text.
     /// </summary>

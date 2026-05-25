@@ -44,9 +44,9 @@ Manual MCP configuration using NuGet:
 
 1. Install the MCP server with the quick-install link or the `dnx` configuration above.
 2. Restart or reload your MCP-capable client so it discovers the `reactivememory_*` tools.
-3. Ask your assistant to call `reactivememory_status` to confirm the core path and current taxonomy.
-4. For memory-aware work, have the assistant call `reactivememory_react_to_prompt` at the start of each user prompt, then use `reactivememory_search_relays`, `reactivememory_search`, or `reactivememory_facts_query` before answering from memory.
-5. After meaningful work, store durable outcomes with `reactivememory_add_drawer` or `reactivememory_diary_write` rather than saving full transcripts.
+3. Ask your assistant to call `reactivememory_status` to confirm the core path, current taxonomy, and fallback-safe local model status.
+4. For memory-aware work, have the assistant call `reactivememory_memory_automanage` or `reactivememory_react_to_prompt` at the start of each user prompt, then use `reactivememory_memory_get_relevant`, `reactivememory_search_relays`, `reactivememory_search`, or `reactivememory_facts_query` before answering from memory.
+5. After meaningful work, store durable outcomes with `reactivememory_memory_add`, `reactivememory_add_drawer`, or `reactivememory_diary_write` rather than saving full transcripts. Use `reactivememory_memory_classify` / `reactivememory_memory_should_store` to audit decisions, `reactivememory_memory_summarise` to compress long-term groups, and `reactivememory_memory_prune` for dry-run pruning recommendations unless `apply=true` is explicitly requested.
 
 Minimal first prompt:
 
@@ -152,9 +152,16 @@ Agents that support repository-local skills can use the file directly. Agents th
 ### Core & taxonomy
 
 #### `reactivememory_status`
-Returns a summary of the entire core: total drawer count, per-sector counts, per-vault counts, the configured core path, and the full agent protocol instructions.
+Returns a summary of the entire core: total drawer count, per-sector counts, per-vault counts, the configured core path, fallback-safe local model/NPU status, and the full agent protocol instructions.
 
-**When to use:** Call this first on every session start. The response tells the agent what is stored and how to use the server correctly.
+**When to use:** Call this first on every session start. The response tells the agent what is stored, whether optional local model acceleration is active or falling back to hash embeddings, and how to use the server correctly.
+
+---
+
+#### `reactivememory_local_model_status`
+Returns only the optional local model/NPU runtime status. It is safe to call when ONNX Runtime, DirectML/QNN providers, or model files are not installed; absent dependencies are reported as status/messages instead of startup failures.
+
+**When to use:** Use when enabling or troubleshooting local embeddings. The default should report `enabled=false`, `activeEmbeddingProvider="Hash"`, and CPU/hash fallback active.
 
 ---
 
@@ -227,6 +234,28 @@ Checks whether content already exists in the core using configurable similarity 
 - `threshold` *(default: 0.9)* — similarity score above which a match is considered a duplicate
 
 **When to use:** Call before `reactivememory_add_drawer` when the content might already be stored. A threshold of `0.9` catches near-identical content; lower values (e.g. `0.7`) will flag looser semantic overlaps. Returns whether a duplicate was found, the matching drawer IDs, and their similarity scores.
+
+---
+
+### Cognitive memory management
+
+#### `reactivememory_memory_classify`
+Classifies a candidate message before storage as `personal_preference`, `long_term_fact`, `short_term_context`, `irrelevant`, or `sensitive_do_not_store`. Sensitive and irrelevant classifications are conservative and return `shouldStore=false`.
+
+#### `reactivememory_memory_add`
+`memory.add` equivalent. Runs classification first, rejects sensitive/do-not-store and irrelevant content, then stores accepted memories with category metadata and vector indexes.
+
+#### `reactivememory_memory_get_relevant`
+`memory.getRelevant` equivalent. Searches managed memories and returns category metadata alongside drawer IDs and similarity scores.
+
+#### `reactivememory_memory_summarise`
+`memory.summarise` equivalent. Builds a local summarisation prompt and uses the optional local model runtime when linked; otherwise it falls back to deterministic local compression so no NPU/model is required.
+
+#### `reactivememory_memory_prune`
+`memory.prune` equivalent. Produces auditable duplicate/irrelevant pruning recommendations by default. Destructive deletion occurs only when `apply=true`, and each delete is logged through the write-ahead log.
+
+#### `reactivememory_memory_automanage`
+`memory.automanage` equivalent. Runs classify → skip sensitive/irrelevant → embed/store with category/vector metadata → summarise-if-large → pruning recommendation. It remains offline/private by default and does not require local model hardware.
 
 ---
 
@@ -651,6 +680,394 @@ The server stores all data under `~/.reactivememory/` by default. No environment
 
 Configuration can be overridden by providing a `ReactiveMemoryOptions` instance when constructing `ReactiveMemoryService` programmatically.
 
+### Optional local model/NPU runtime
+
+ReactiveMemory remains offline and fallback-safe by default. Local model support is opt-in and no model downloads, cloud calls, ONNX Runtime assemblies, DirectML/QNN/OpenVINO/Core ML providers, or model files are required for the default server.
+NPU is used by ReactiveMemory as an optional support model, not as the main agent runtime: MCP clients such as Codex, GitHub Copilot, Claude Code, Cursor, Windsurf, Visual Studio, VS Code, or Claude Desktop continue to run their own agent models while ReactiveMemory optionally accelerates local embedding, classification, and summarisation support work.
+
+The built-in NuGet/stdio server ships with deterministic hash embeddings enabled and local model execution disabled. To run an actual NPU-backed LLM or embedding model, host ReactiveMemory with a concrete `ILocalModelRuntime` implementation that wraps your local inference stack, for example ONNX Runtime, ONNX Runtime GenAI, OpenVINO, Core ML, MLX, or another offline backend. The core APIs are intentionally provider-neutral so the server can run on Windows, Linux, and macOS without taking a hard dependency on any one accelerator runtime.
+
+#### What the local model is used for
+
+- Embeddings: vector relevance search and `reactivememory_memory_get_relevant`.
+- Classification: `reactivememory_memory_classify`, `reactivememory_memory_should_store`, and the first stage of `reactivememory_memory_automanage`.
+- Summarisation: `reactivememory_memory_summarise` and category compaction when automanage thresholds are reached.
+- Pruning decisions: duplicate, irrelevant, stale, and contradiction recommendations for `reactivememory_memory_prune`.
+
+The local model never has to be the same model as the agent. A small embedding model such as `all-MiniLM-L6-v2`, `e5-small`, or `bge-small` is usually enough for retrieval. A compact instruction model such as Phi-3 Mini, Llama 3.x 8B/3B/1B quantised, or another ONNX/INT4 model can be used for summarisation/classification when your hardware supports it.
+
+#### Default disabled settings
+
+```csharp
+var options = new ReactiveMemoryOptions();
+// options.LocalModel.Enabled == false
+// options.LocalModel.EmbeddingProvider == "Hash"
+// options.LocalModel.AllowCloud == false
+// options.LocalModel.DownloadAllowed == false
+// options.LocalModel.AllowCpuFallback == true
+// options.LocalModel.ProviderPreference == ["CPU"]
+```
+
+With these defaults:
+
+- `reactivememory_local_model_status` reports `enabled=false`.
+- `reactivememory_status` reports the same local model block.
+- `SimpleTextEmbeddingProvider` remains active (`ProviderId="Hash"`, `Version=1`, `Dimensions=512`).
+- All memory tools still work offline using deterministic local heuristics and hash embeddings.
+
+#### Common model folder layout
+
+Put model assets under the ReactiveMemory model directory and point options at explicit files. Runtime downloads are disabled by default, so install models yourself.
+
+Recommended layout:
+
+```text
+~/.reactivememory/models/
+  all-MiniLM-L6-v2/
+    onnx/model.onnx
+    tokenizer.json
+  phi-3-mini-instruct/
+    onnx/model.onnx
+    tokenizer.json
+```
+
+Windows equivalent:
+
+```text
+%USERPROFILE%\.reactivememory\models\
+  all-MiniLM-L6-v2\onnx\model.onnx
+  all-MiniLM-L6-v2\tokenizer.json
+  phi-3-mini-instruct\onnx\model.onnx
+  phi-3-mini-instruct\tokenizer.json
+```
+
+Use model files that match your runtime adapter. Examples:
+
+- Embeddings: ONNX export of `sentence-transformers/all-MiniLM-L6-v2`, `intfloat/e5-small-v2`, or `BAAI/bge-small-en-v1.5`.
+- Summarisation/classification: ONNX or ORT GenAI export of Phi-3 Mini Instruct, Llama 3.x quantised, or another small local instruction model.
+- Keep embedding dimensions explicit: `384` for MiniLM, commonly `384` or `768` for other small embedding models depending on the export.
+
+#### Enable local model support in a source/custom host
+
+The packaged stdio server calls `AddReactiveMemory()` with defaults. For NPU-backed inference, create a small source/custom host that supplies options and registers an offline runtime adapter.
+
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using ReactiveMemory.MCP.Core.Abstractions;
+using ReactiveMemory.MCP.Core.Configuration;
+using ReactiveMemory.MCP.Core.Wiring;
+
+var options = new ReactiveMemoryOptions
+{
+    LocalModel =
+    {
+        Enabled = true,
+        EmbeddingProvider = "Onnx",
+        ModelDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".reactivememory",
+            "models"),
+        EmbeddingModelPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".reactivememory",
+            "models",
+            "all-MiniLM-L6-v2",
+            "onnx",
+            "model.onnx"),
+        TokenizerPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".reactivememory",
+            "models",
+            "all-MiniLM-L6-v2",
+            "tokenizer.json"),
+        ProviderPreference = ["DirectML", "QNN", "OpenVINO", "CPU"],
+        ExpectedEmbeddingDimensions = 384,
+        AllowCpuFallback = true,
+        AllowCloud = false,
+        DownloadAllowed = false,
+    },
+};
+
+builder.Services.AddReactiveMemory(options);
+
+// Replace this with your concrete local runtime implementation.
+// The adapter should create IEmbeddingProvider instances and implement
+// TryGenerateTextAsync for summarisation/classification prompts.
+builder.Services.Replace(ServiceDescriptor.Singleton<ILocalModelRuntime, OnnxLocalModelRuntime>());
+```
+
+A runtime adapter should:
+
+- Load local model files only from configured paths.
+- Never call the network unless `AllowCloud=true` and the user explicitly opted in.
+- Report execution providers through `GetStatus()` so `reactivememory_local_model_status` can explain what is active.
+- Return deterministic fallback/unavailable results instead of throwing when native libraries or model files are absent, unless `AllowCpuFallback=false`.
+- Keep prompts and rejected sensitive content out of audit logs.
+
+After changing the host, restart the MCP client so it respawns the stdio server.
+
+#### Windows setup: DirectML, Qualcomm QNN, or CPU fallback
+
+Use this path for Windows 11, Copilot+ PCs, Qualcomm Snapdragon X devices, Intel/AMD systems, and machines where DirectML exposes acceleration.
+
+1. Install prerequisites:
+
+```powershell
+winget install Microsoft.DotNet.SDK.10
+winget install Git.Git
+```
+
+2. Check for accelerator hardware:
+
+```powershell
+Get-PnpDevice -Class System | Where-Object FriendlyName -Match 'NPU|Neural|AI|Qualcomm|Intel|AMD'
+Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion
+```
+
+Also check **Task Manager → Performance** for an `NPU` graph and **Device Manager** for neural processor devices.
+
+3. Choose a runtime adapter/package strategy:
+
+- DirectML path: use `Microsoft.ML.OnnxRuntime.DirectML` in your adapter for DirectML-capable Windows devices. DirectML may run on GPU or NPU depending on Windows, driver, provider, and model support.
+- Qualcomm NPU path: use a QNN-capable ONNX Runtime build/adapter where available and set `ProviderPreference = ["QNN", "CPU"]`.
+- CPU fallback path: use `Microsoft.ML.OnnxRuntime` or keep the built-in hash provider. This is safest for development and CI.
+- Local LLM path: use ONNX Runtime GenAI or an equivalent offline runtime adapter for Phi-3/Llama summarisation.
+
+4. Copy models to `%USERPROFILE%\.reactivememory\models\...`.
+
+5. Enable with Windows-oriented options:
+
+```csharp
+LocalModel =
+{
+    Enabled = true,
+    EmbeddingProvider = "Onnx",
+    EmbeddingModelPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".reactivememory", "models", "all-MiniLM-L6-v2", "onnx", "model.onnx"),
+    TokenizerPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".reactivememory", "models", "all-MiniLM-L6-v2", "tokenizer.json"),
+    ProviderPreference = ["DirectML", "QNN", "CPU"],
+    ExpectedEmbeddingDimensions = 384,
+    AllowCpuFallback = true,
+    AllowCloud = false,
+    DownloadAllowed = false,
+}
+```
+
+6. Verify through your MCP client:
+
+```text
+Call reactivememory_local_model_status and tell me whether DirectML/QNN/local model acceleration is ready or falling back to hash embeddings.
+```
+
+Expected healthy states:
+
+- `ready=true`, `activeEmbeddingProvider="Onnx"`: local model path is active.
+- `ready=false`, `activeEmbeddingProvider="Hash"`, `cpuFallbackActive=true`: model acceleration is unavailable but memory search remains functional.
+
+#### Linux setup: OpenVINO, CUDA, ROCm/custom, or CPU fallback
+
+Use this path for Linux workstations, Intel NPU/OpenVINO machines, NVIDIA CUDA systems, AMD/ROCm systems, and servers where CPU fallback is acceptable.
+
+1. Install prerequisites:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git curl
+# Install .NET 10 SDK using your distribution's Microsoft package feed.
+dotnet --info
+```
+
+2. Check accelerator visibility:
+
+```bash
+lspci | grep -Ei 'nvidia|intel|amd|neural|npu|vga|3d'
+lsusb | grep -Ei 'neural|npu|intel|qualcomm' || true
+```
+
+For Intel/OpenVINO devices, install the vendor driver/runtime packages recommended for your distribution. For NVIDIA, install the matching driver/CUDA runtime. For AMD/ROCm or other NPUs, use a matching custom `ILocalModelRuntime` adapter.
+
+3. Choose provider preference:
+
+```csharp
+ProviderPreference = ["OpenVINO", "CUDA", "CPU"]
+```
+
+Use:
+
+- `OpenVINO` for Intel CPU/GPU/NPU acceleration where your adapter supports it.
+- `CUDA` for NVIDIA GPU acceleration.
+- `CPU` for deterministic fallback and CI.
+- A custom provider name if your adapter reports another backend, for example `ROCm`, `Vulkan`, or a vendor NPU runtime.
+
+4. Copy models to `~/.reactivememory/models/...`:
+
+```bash
+mkdir -p ~/.reactivememory/models/all-MiniLM-L6-v2/onnx
+cp /path/to/model.onnx ~/.reactivememory/models/all-MiniLM-L6-v2/onnx/model.onnx
+cp /path/to/tokenizer.json ~/.reactivememory/models/all-MiniLM-L6-v2/tokenizer.json
+```
+
+5. Enable with Linux-oriented options:
+
+```csharp
+LocalModel =
+{
+    Enabled = true,
+    EmbeddingProvider = "Onnx",
+    EmbeddingModelPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".reactivememory", "models", "all-MiniLM-L6-v2", "onnx", "model.onnx"),
+    TokenizerPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".reactivememory", "models", "all-MiniLM-L6-v2", "tokenizer.json"),
+    ProviderPreference = ["OpenVINO", "CUDA", "CPU"],
+    ExpectedEmbeddingDimensions = 384,
+    AllowCpuFallback = true,
+    AllowCloud = false,
+    DownloadAllowed = false,
+}
+```
+
+6. Verify:
+
+```text
+Call reactivememory_local_model_status and confirm the active provider, model path, tokenizer path, and fallback state.
+```
+
+#### macOS setup: Apple Silicon, Core ML/MLX adapter, or CPU fallback
+
+Use this path for Apple Silicon Macs and Intel Macs. Apple Neural Engine access is runtime-specific; the core server remains provider-neutral and requires a Core ML, MLX, or ONNX-compatible adapter if you want hardware acceleration.
+
+1. Install prerequisites:
+
+```bash
+brew install dotnet git
+# Or install the .NET 10 SDK package from Microsoft.
+dotnet --info
+```
+
+2. Check hardware:
+
+```bash
+system_profiler SPHardwareDataType | grep -E 'Chip|Processor|Model Name'
+system_profiler SPDisplaysDataType | grep -E 'Chipset Model|Metal'
+```
+
+3. Choose provider preference:
+
+```csharp
+ProviderPreference = ["CoreML", "MLX", "CPU"]
+```
+
+Use:
+
+- `CoreML` for a Core ML-backed adapter that can use Apple Neural Engine when model/operator support allows it.
+- `MLX` for an MLX-backed local LLM adapter on Apple Silicon.
+- `CPU` for the built-in deterministic fallback or a portable ONNX CPU adapter.
+
+4. Copy models to `~/.reactivememory/models/...`. Use formats your adapter supports: ONNX for ONNX Runtime adapters, `.mlmodelc`/Core ML packages for Core ML adapters, or MLX-compatible model folders for MLX adapters.
+
+5. Enable with macOS-oriented options:
+
+```csharp
+LocalModel =
+{
+    Enabled = true,
+    EmbeddingProvider = "Onnx",
+    EmbeddingModelPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".reactivememory", "models", "all-MiniLM-L6-v2", "onnx", "model.onnx"),
+    TokenizerPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".reactivememory", "models", "all-MiniLM-L6-v2", "tokenizer.json"),
+    ProviderPreference = ["CoreML", "MLX", "CPU"],
+    ExpectedEmbeddingDimensions = 384,
+    AllowCpuFallback = true,
+    AllowCloud = false,
+    DownloadAllowed = false,
+}
+```
+
+6. Verify:
+
+```text
+Call reactivememory_local_model_status and confirm whether the CoreML/MLX adapter reports ready or CPU/hash fallback is active.
+```
+
+#### Disable local model/NPU support
+
+Disable acceleration by returning to the default safe settings and restarting the MCP client/server process.
+
+```csharp
+var options = new ReactiveMemoryOptions
+{
+    LocalModel =
+    {
+        Enabled = false,
+        EmbeddingProvider = "Hash",
+        ProviderPreference = ["CPU"],
+        EmbeddingModelPath = null,
+        TokenizerPath = null,
+        ExpectedEmbeddingDimensions = null,
+        AllowCpuFallback = true,
+        AllowCloud = false,
+        DownloadAllowed = false,
+    },
+};
+```
+
+Also remove or stop registering any custom `ILocalModelRuntime` adapter if you want the packaged fallback-only behavior.
+
+After disabling, verify:
+
+```text
+Call reactivememory_local_model_status. It should report enabled=false, activeEmbeddingProvider="Hash", and CPU/hash fallback active.
+```
+
+#### Runtime verification checklist
+
+1. Start or restart the MCP client so the stdio server is relaunched.
+2. Ask the agent to call `reactivememory_status`.
+3. Ask the agent to call `reactivememory_local_model_status`.
+4. Confirm:
+   - `enabled` matches your intended toggle.
+   - `requestedEmbeddingProvider` is `Onnx` only when you intended local embeddings.
+   - `activeEmbeddingProvider` is either `Onnx`/your adapter provider or `Hash` fallback.
+   - `modelFilePresent` and `tokenizerFilePresent` are true when local model mode is expected.
+   - `allowCloud=false` and `downloadAllowed=false` for private/offline operation.
+5. Run an automanage smoke test:
+
+```text
+Call reactivememory_memory_automanage with a harmless long-term preference, then call reactivememory_memory_get_relevant for the same topic.
+```
+
+6. Run a privacy smoke test:
+
+```text
+Call reactivememory_memory_automanage with a synthetic secret such as "password=not-a-real-secret-123" and verify it is rejected and not stored in drawers, vectors, relays, or WAL content.
+```
+
+#### Troubleshooting
+
+- `enabled=false`: the feature is disabled by configuration. Enable `LocalModel.Enabled=true` in your host options and restart the MCP client.
+- `activeEmbeddingProvider="Hash"` with `cpuFallbackActive=true`: local acceleration is unavailable, but the server is operating safely with deterministic fallback.
+- Model file missing: check `EmbeddingModelPath`, path separators, and whether the MCP server process runs under the user account that owns `~/.reactivememory/models`.
+- Tokenizer missing: copy `tokenizer.json` next to the model and set `TokenizerPath` explicitly.
+- Provider not reported: install the native runtime/provider package for your OS or change `ProviderPreference` to include `CPU`.
+- Startup fails when local provider is unavailable: set `AllowCpuFallback=true`, or install the provider/model files required by your adapter.
+- Unexpected cloud/network activity: keep `AllowCloud=false`, `DownloadAllowed=false`, and use only adapters that honor those flags.
+
+Embedding provider selection is explicit and fallback-safe:
+
+- `SimpleTextEmbeddingProvider` remains the default (`ProviderId="Hash"`, `Version=1`, `Dimensions=512`).
+- Local model embeddings are selected only when `LocalModel.Enabled=true`, `EmbeddingProvider` is not `Hash`, an `ILocalModelRuntime` resolves a provider, and `ExpectedEmbeddingDimensions` is either unset or matches the resolved provider dimensions.
+- If the configured local runtime is unavailable or its dimensions do not match, `AllowCpuFallback=true` keeps deterministic hash embeddings active; disabling fallback causes startup to fail instead of silently mixing incompatible vectors.
+- Vector records persist `embeddingProviderId`, `embeddingVersion`, and `embeddingDimensions`. Queries re-embed incompatible legacy vectors in memory rather than comparing different provider/dimension spaces, preserving search compatibility without silently corrupting stored vectors.
+
 ---
 
 ## Build
@@ -725,4 +1142,5 @@ Once configured, you can ask things like:
 - "Check if this code snippet is already stored before saving it"
 - "Acknowledge whatever memories were silently filed away most recently"
 - "Reconnect ReactiveMemory because another process modified the local core"
+- "Call reactivememory_local_model_status and tell me whether local model acceleration is enabled or falling back to hash embeddings"
 - "What does the AAAK spec say and how should I store a new credential record?"
