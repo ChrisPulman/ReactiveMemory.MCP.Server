@@ -3,7 +3,14 @@ namespace ReactiveMemory.MCP.Core.Models;
 /// <summary>
 /// Vector-compatible persisted memory record.
 /// </summary>
-public sealed record VectorRecord(string Id, string Content, IReadOnlyDictionary<string, string?> Metadata, IReadOnlyList<double>? Embedding = null);
+public sealed record VectorRecord(
+    string Id,
+    string Content,
+    IReadOnlyDictionary<string, string?> Metadata,
+    IReadOnlyList<double>? Embedding = null,
+    string? EmbeddingProviderId = null,
+    int? EmbeddingVersion = null,
+    int? EmbeddingDimensions = null);
 
 /// <summary>
 /// Vector search hit.

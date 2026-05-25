@@ -17,6 +17,19 @@ Reactive Memory is a local durable memory core:
 - Drawer: one stored memory record with stable content and a drawer ID.
 
 Treat the server as a retrieval and filing system, not as a transcript archive.
+NPU is used by ReactiveMemory as an optional support model, not as the main agent runtime: Codex, GitHub Copilot, Claude Code, Claude Desktop, and other MCP clients keep using their own primary agent model while ReactiveMemory optionally accelerates local embedding and summarisation support work.
+
+## Managed Memory Workflow
+
+Use the managed memory APIs when you want ReactiveMemory to classify, reject unsafe or irrelevant content, store accepted facts with category/vector metadata, retrieve relevant memories, summarise growing groups, and recommend pruning without exposing data to cloud services.
+
+- `reactivememory_memory_classify`: inspect whether candidate content is `personal_preference`, `long_term_fact`, `short_term_context`, `irrelevant`, or `sensitive_do_not_store`.
+- `reactivememory_memory_should_store`: ask for the conservative should-store decision without writing anything.
+- `reactivememory_memory_add`: `memory.add` equivalent; classify first, skip sensitive/irrelevant text, then embed/store accepted content.
+- `reactivememory_memory_get_relevant`: `memory.getRelevant` equivalent; retrieve category-aware managed memories for the current task.
+- `reactivememory_memory_summarise`: `memory.summarise` equivalent; build a local summarisation prompt and use the optional local model/NPU runtime when configured, otherwise deterministic fallback.
+- `reactivememory_memory_prune`: `memory.prune` equivalent; default to dry-run duplicate/outdated/contradiction/irrelevant recommendations and only delete when `apply=true` is explicitly requested.
+- `reactivememory_memory_automanage`: `memory.automanage` equivalent; run classify → skip sensitive/irrelevant → embed/store → summarise-if-large → prune dry-run checks.
 
 ## Default Workflow
 
@@ -27,7 +40,7 @@ Treat the server as a retrieval and filing system, not as a transcript archive.
    - Use `reactivememory_search` for semantic retrieval of stored drawers.
    - Use `reactivememory_facts_query` for entity facts or state that can change over time.
 4. Fetch full records with `reactivememory_get_drawer` only when search snippets are insufficient.
-5. After meaningful work, store only compact durable outcomes with `reactivememory_add_drawer` or `reactivememory_diary_write`.
+5. After meaningful work, store only compact durable outcomes with `reactivememory_memory_add`, `reactivememory_add_drawer`, or `reactivememory_diary_write`; use `reactivememory_memory_summarise` and `reactivememory_memory_prune` to keep long-running memory sets compact.
 
 ## What To Store
 
@@ -114,6 +127,9 @@ Prefer one focused drawer over a mixed grab bag. If multiple unrelated durable f
 ## Tool Selection Quick Reference
 
 - `reactivememory_status`: initial health and core summary.
+- `reactivememory_local_model_status`: optional local model/NPU provider diagnostics and fallback status.
+- `reactivememory_memory_classify`, `reactivememory_memory_should_store`: audit managed-memory storage decisions.
+- `reactivememory_memory_add`, `reactivememory_memory_get_relevant`, `reactivememory_memory_summarise`, `reactivememory_memory_prune`, `reactivememory_memory_automanage`: managed memory equivalents for `memory.add`, `memory.getRelevant`, `memory.summarise`, `memory.prune`, and `memory.automanage`.
 - `reactivememory_react_to_prompt`: first memory reaction for an incoming prompt.
 - `reactivememory_search_relays`: cheap hints for where memory may live.
 - `reactivememory_search`: semantic drawer search.

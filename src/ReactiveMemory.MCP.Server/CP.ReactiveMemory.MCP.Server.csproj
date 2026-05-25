@@ -5,8 +5,8 @@
     <RootNamespace>ReactiveMemory.MCP.Server</RootNamespace>
     <PackageId>CP.ReactiveMemory.Mcp.Server</PackageId>
     <Title>ReactiveMemory MCP Server</Title>
-    <Description>ReactiveMemory MCP server with vector-compatible storage, mining pipeline, and temporal knowledge graph.</Description>
-    <PackageTags>ReactiveMemory;MCP;Model Context Protocol;C#;dotnet;knowledge graph;vector search</PackageTags>
+    <Description>ReactiveMemory MCP server with vector-compatible storage, managed memory APIs, optional local model/NPU support, mining pipeline, and temporal knowledge graph.</Description>
+    <PackageTags>ReactiveMemory;MCP;Model Context Protocol;C#;dotnet;knowledge graph;vector search;managed memory;NPU;local model</PackageTags>
     <PackAsTool>true</PackAsTool>
     <PackageType>McpServer</PackageType>
     <ToolCommandName>reactivememory-mcp-server</ToolCommandName>

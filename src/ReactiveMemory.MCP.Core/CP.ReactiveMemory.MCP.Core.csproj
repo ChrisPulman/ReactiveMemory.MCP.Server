@@ -4,8 +4,8 @@
     <RootNamespace>ReactiveMemory.MCP.Core</RootNamespace>
     <PackageId>CP.ReactiveMemory.Mcp.Core</PackageId>
     <Title>ReactiveMemory MCP Core</Title>
-    <Description>Core storage, mining, vector-compatible search, relays, tunnels, entities, and temporal knowledge graph services for ReactiveMemory MCP.</Description>
-    <PackageTags>ReactiveMemory;MCP;Model Context Protocol;C#;dotnet;knowledge graph;vector search</PackageTags>
+    <Description>Core storage, managed memory services, optional local model/NPU runtime seams, mining, vector-compatible search, relays, tunnels, entities, and temporal knowledge graph services for ReactiveMemory MCP.</Description>
+    <PackageTags>ReactiveMemory;MCP;Model Context Protocol;C#;dotnet;knowledge graph;vector search;managed memory;NPU;local model</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

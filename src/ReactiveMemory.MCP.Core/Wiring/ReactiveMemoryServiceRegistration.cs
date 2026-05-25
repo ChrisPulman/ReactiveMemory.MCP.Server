@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using ReactiveMemory.MCP.Core.Abstractions;
 using ReactiveMemory.MCP.Core.Configuration;
 using ReactiveMemory.MCP.Core.Entities;
@@ -22,7 +23,12 @@ public static class ReactiveMemoryServiceRegistration
     {
         var resolvedOptions = options ?? new ReactiveMemoryOptions();
         services.AddSingleton(resolvedOptions);
-        services.AddSingleton<IEmbeddingProvider, SimpleTextEmbeddingProvider>();
+        services.TryAddSingleton<ILocalModelProviderProbe, ReflectionOnnxExecutionProviderProbe>();
+        services.TryAddSingleton<ILocalModelRuntime, LocalModelRuntimeStatusProvider>();
+        services.TryAddSingleton<IEmbeddingProvider>(static provider =>
+            LocalModelEmbeddingProviderFactory.Create(
+                provider.GetRequiredService<ReactiveMemoryOptions>(),
+                provider.GetRequiredService<ILocalModelRuntime>()));
         services.AddSingleton<IVectorStore>(static provider =>
             new JsonVectorStore(
                 provider.GetRequiredService<ReactiveMemoryOptions>(),
@@ -41,7 +47,8 @@ public static class ReactiveMemoryServiceRegistration
             var service = ReactiveMemoryService.CreateAsync(
                 optionsValue,
                 provider.GetRequiredService<IVectorStore>(),
-                new JsonVectorStore(optionsValue, embeddingProvider, optionsValue.RelayCollectionName)).GetAwaiter().GetResult();
+                new JsonVectorStore(optionsValue, embeddingProvider, optionsValue.RelayCollectionName),
+                provider.GetRequiredService<ILocalModelRuntime>()).GetAwaiter().GetResult();
             return service;
         });
         return services;

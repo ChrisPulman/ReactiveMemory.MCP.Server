@@ -1,3 +1,4 @@
+using ReactiveMemory.MCP.Core.Abstractions;
 using ReactiveMemory.MCP.Core.Configuration;
 using ReactiveMemory.MCP.Core.Services;
 
@@ -15,7 +16,7 @@ public sealed class TestHarness
 
     public ReactiveMemoryService Service { get; }
 
-    public static async Task<TestHarness> CreateAsync()
+    public static async Task<TestHarness> CreateAsync(Action<ReactiveMemoryOptions>? configure = null, ILocalModelRuntime? localModelRuntime = null)
     {
         var root = Path.Combine(Path.GetTempPath(), "reactive-memory-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -27,8 +28,9 @@ public sealed class TestHarness
             WalRootPath = Path.Combine(root, "wal"),
             HookStatePath = Path.Combine(root, "hook_state"),
         };
+        configure?.Invoke(options);
 
-        var service = await ReactiveMemoryService.CreateAsync(options);
+        var service = await ReactiveMemoryService.CreateAsync(options, localModelRuntime: localModelRuntime);
         return new TestHarness(root, service);
     }
 }

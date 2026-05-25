@@ -10,7 +10,50 @@ namespace ReactiveMemory.MCP.Core.Models;
 /// <param name="CorePath">The core path associated with the status result. Cannot be null.</param>
 /// <param name="Protocol">The protocol identifier used in the status result. Cannot be null.</param>
 /// <param name="AaakDialect">The dialect of the AAAK protocol used in the status result. Cannot be null.</param>
-public sealed record StatusResult(int TotalDrawers, IReadOnlyDictionary<string, int> Sectors, IReadOnlyDictionary<string, int> Vaults, string CorePath, string Protocol, string AaakDialect);
+/// <param name="LocalModel">Fallback-safe local model/NPU runtime status.</param>
+public sealed record StatusResult(
+    int TotalDrawers,
+    IReadOnlyDictionary<string, int> Sectors,
+    IReadOnlyDictionary<string, int> Vaults,
+    string CorePath,
+    string Protocol,
+    string AaakDialect,
+    LocalModelStatusResult LocalModel);
+
+/// <summary>
+/// Fallback-safe status for optional local model runtime support.
+/// </summary>
+public sealed record LocalModelStatusResult(
+    bool Enabled,
+    bool Ready,
+    string RequestedEmbeddingProvider,
+    string ActiveEmbeddingProvider,
+    string ModelDirectory,
+    string? ModelPath,
+    string? TokenizerPath,
+    bool ModelFilePresent,
+    bool TokenizerFilePresent,
+    IReadOnlyList<string> ProviderPreference,
+    IReadOnlyList<LocalModelProviderStatus> Providers,
+    bool CpuFallbackEnabled,
+    bool CpuFallbackActive,
+    int? ExpectedEmbeddingDimensions,
+    bool AllowCloud,
+    bool DownloadAllowed,
+    int? DeviceId,
+    string ProbeSource,
+    string? ProbeError,
+    IReadOnlyList<string> Messages);
+
+/// <summary>
+/// Status for one requested local model execution provider.
+/// </summary>
+public sealed record LocalModelProviderStatus(string Name, bool Requested, bool Available, bool RuntimeAvailable, string Reason);
+
+/// <summary>
+/// Safe execution provider probe result.
+/// </summary>
+public sealed record LocalModelProviderProbeResult(IReadOnlyList<string> AvailableProviders, string Source, string? Error = null);
 
 /// <summary>
 /// Represents the result of a sector analysis, containing a mapping of sector names to their associated values.
@@ -43,7 +86,7 @@ public sealed record TaxonomyResult(IReadOnlyDictionary<string, IReadOnlyDiction
 /// <param name="SourceFile">The source file from which the search hit originates.</param>
 /// <param name="Similarity">The similarity score indicating how closely the search hit matches the search criteria. Ranges from 0.0 (no
 /// similarity) to 1.0 (identical).</param>
-public sealed record SearchHit(string DrawerId, string Text, string Sector, string Vault, string SourceFile, double Similarity);
+public sealed record SearchHit(string DrawerId, string Text, string Sector, string Vault, string SourceFile, double Similarity, MemoryClassificationCategory? Category = null);
 
 /// <summary>
 /// Represents the result of a search operation, including the original query, applied filters, and the list of matching
