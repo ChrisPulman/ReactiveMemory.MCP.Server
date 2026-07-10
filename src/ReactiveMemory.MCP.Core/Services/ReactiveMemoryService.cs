@@ -1,3 +1,6 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System.Security.Cryptography;
 using System.Text;
 using ReactiveMemory.MCP.Core.Abstractions;
@@ -9,24 +12,125 @@ using ReactiveMemory.MCP.Core.Storage;
 
 namespace ReactiveMemory.MCP.Core.Services;
 
-/// <summary>
-/// Main application service implementing ReactiveMemory operations.
-/// </summary>
+/// <summary>Main application service implementing ReactiveMemory operations.</summary>
 public sealed class ReactiveMemoryService
 {
-    private readonly DrawerStore drawerStore;
-    private readonly IVectorStore vectorStore;
-    private readonly IVectorStore relayVectorStore;
-    private readonly KnowledgeGraphStore knowledgeGraphStore;
-    private readonly WriteAheadLog writeAheadLog;
-    private readonly ExplicitTunnelStore explicitTunnelStore;
-    private readonly HookStateStore hookStateStore;
-    private readonly EntityRegistry entityRegistry;
-    private readonly ILocalModelRuntime localModelRuntime;
+    /// <summary>Number of optional search filters included in result metadata.</summary>
+    private const int SearchFilterCapacity = 2;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="ReactiveMemoryService"/> class.
-    /// </summary>
+    /// <summary>Default similarity required for duplicate detection.</summary>
+    private const double DefaultDuplicateThreshold = 0.9;
+
+    /// <summary>Maximum text length included in duplicate-match previews.</summary>
+    private const int DuplicatePreviewLength = 80;
+
+    /// <summary>Maximum candidate count requested from the vector store during duplicate detection.</summary>
+    private const int DuplicateVectorQueryLimit = 50;
+
+    /// <summary>Minimum lexical score required to confirm a vector duplicate.</summary>
+    private const double MinimumDuplicateLexicalScore = 0.55;
+
+    /// <summary>Maximum lexical score required to confirm a vector duplicate.</summary>
+    private const double MaximumDuplicateLexicalScore = 0.85;
+
+    /// <summary>Confidence assigned to sensitive content that must not be stored.</summary>
+    private const double SensitiveClassificationConfidence = 0.99;
+
+    /// <summary>Confidence assigned to personal preferences.</summary>
+    private const double PersonalPreferenceClassificationConfidence = 0.9;
+
+    /// <summary>Confidence assigned to short-term context.</summary>
+    private const double ShortTermClassificationConfidence = 0.82;
+
+    /// <summary>Confidence assigned to irrelevant content.</summary>
+    private const double IrrelevantClassificationConfidence = 0.85;
+
+    /// <summary>Confidence assigned to durable information.</summary>
+    private const double DurableClassificationConfidence = 0.78;
+
+    /// <summary>Maximum drawer text length included in a relay identity.</summary>
+    private const int RelayIdentityPreviewLength = 160;
+
+    /// <summary>Similarity assigned when a candidate contains the complete query.</summary>
+    private const double ContainedQuerySimilarity = 0.99;
+
+    /// <summary>Number of decimal places retained in lexical similarity scores.</summary>
+    private const int SimilarityDecimalPlaces = 3;
+
+    /// <summary>Initial token buffer capacity.</summary>
+    private const int TokenBufferCapacity = 32;
+
+    /// <summary>Maximum number of inferred topics retained for a drawer.</summary>
+    private const int MaximumInferredTopics = 8;
+
+    /// <summary>Default duplicate threshold used by memory pruning.</summary>
+    private const double DefaultPruneDuplicateThreshold = 0.92;
+
+    /// <summary>Confidence assigned to irrelevant-memory deletion recommendations.</summary>
+    private const double IrrelevantPruneConfidence = 0.95;
+
+    /// <summary>Confidence assigned to stale-context deletion recommendations.</summary>
+    private const double StaleContextPruneConfidence = 0.9;
+
+    /// <summary>Confidence assigned to contradiction review recommendations.</summary>
+    private const double ContradictionPruneConfidence = 0.86;
+
+    /// <summary>Maximum content length used to derive a drawer identifier.</summary>
+    private const int DrawerIdContentLength = 100;
+
+    /// <summary>Number of hexadecimal hash characters retained in stable identifiers.</summary>
+    private const int StableIdHashLength = 24;
+
+    /// <summary>Maximum number of drawers returned by a paged list request.</summary>
+    private const int MaximumDrawerListLimit = 200;
+
+    /// <summary>Documents the _drawerStore member.</summary>
+    private readonly DrawerStore _drawerStore;
+
+    /// <summary>Documents the _vectorStore member.</summary>
+    private readonly IVectorStore _vectorStore;
+
+    /// <summary>Documents the _relayVectorStore member.</summary>
+    private readonly IVectorStore _relayVectorStore;
+
+    /// <summary>Documents the _knowledgeGraphStore member.</summary>
+    private readonly KnowledgeGraphStore _knowledgeGraphStore;
+
+    /// <summary>Documents the _writeAheadLog member.</summary>
+    private readonly WriteAheadLog _writeAheadLog;
+
+    /// <summary>Documents the _explicitTunnelStore member.</summary>
+    private readonly ExplicitTunnelStore _explicitTunnelStore;
+
+    /// <summary>Documents the _hookStateStore member.</summary>
+    private readonly HookStateStore _hookStateStore;
+
+    /// <summary>Documents the _entityRegistry member.</summary>
+    private readonly EntityRegistry _entityRegistry;
+
+    /// <summary>Documents the _localModelRuntime member.</summary>
+    private readonly ILocalModelRuntime _localModelRuntime;
+
+    /// <summary>Documents the _contextPackService member.</summary>
+    private readonly ContextPackService _contextPackService;
+
+    /// <summary>Documents the _nextAutomaticPruneUtc member.</summary>
+    private DateTimeOffset _nextAutomaticPruneUtc;
+
+    /// <summary>Documents the _automaticPruneRunning member.</summary>
+    private int _automaticPruneRunning;
+
+    /// <summary>Initializes a new instance of the <see cref="ReactiveMemoryService"/> class.</summary>
+    /// <param name="options">The options value.</param>
+    /// <param name="drawerStore">The drawerStore value.</param>
+    /// <param name="vectorStore">The vectorStore value.</param>
+    /// <param name="relayVectorStore">The relayVectorStore value.</param>
+    /// <param name="knowledgeGraphStore">The knowledgeGraphStore value.</param>
+    /// <param name="writeAheadLog">The writeAheadLog value.</param>
+    /// <param name="explicitTunnelStore">The explicitTunnelStore value.</param>
+    /// <param name="hookStateStore">The hookStateStore value.</param>
+    /// <param name="entityRegistry">The entityRegistry value.</param>
+    /// <param name="localModelRuntime">The localModelRuntime value.</param>
     public ReactiveMemoryService(
         ReactiveMemoryOptions options,
         DrawerStore drawerStore,
@@ -51,25 +155,27 @@ public sealed class ReactiveMemoryService
         ArgumentNullException.ThrowIfNull(localModelRuntime);
 
         Options = options;
-        this.drawerStore = drawerStore;
-        this.vectorStore = vectorStore;
-        this.relayVectorStore = relayVectorStore;
-        this.knowledgeGraphStore = knowledgeGraphStore;
-        this.writeAheadLog = writeAheadLog;
-        this.explicitTunnelStore = explicitTunnelStore;
-        this.hookStateStore = hookStateStore;
-        this.entityRegistry = entityRegistry;
-        this.localModelRuntime = localModelRuntime;
+        _drawerStore = drawerStore;
+        _vectorStore = vectorStore;
+        _relayVectorStore = relayVectorStore;
+        _knowledgeGraphStore = knowledgeGraphStore;
+        _writeAheadLog = writeAheadLog;
+        _explicitTunnelStore = explicitTunnelStore;
+        _hookStateStore = hookStateStore;
+        _entityRegistry = entityRegistry;
+        _localModelRuntime = localModelRuntime;
+        _contextPackService = new(SearchRelaysAsync, SearchAsync);
     }
 
-    /// <summary>
-    /// Gets effective ReactiveMemory options.
-    /// </summary>
+    /// <summary>Gets effective ReactiveMemory options.</summary>
     public ReactiveMemoryOptions Options { get; }
 
-    /// <summary>
-    /// Creates a fully initialized service instance.
-    /// </summary>
+    /// <summary>Creates a fully initialized service instance.</summary>
+    /// <param name="options">The options value.</param>
+    /// <param name="vectorStore">The vectorStore value.</param>
+    /// <param name="relayVectorStore">The relayVectorStore value.</param>
+    /// <param name="localModelRuntime">The localModelRuntime value.</param>
+    /// <returns>The operation result.</returns>
     public static async Task<ReactiveMemoryService> CreateAsync(
         ReactiveMemoryOptions options,
         IVectorStore? vectorStore = null,
@@ -107,39 +213,36 @@ public sealed class ReactiveMemoryService
             resolvedLocalModelRuntime);
     }
 
-    /// <summary>
-    /// Returns high-level status of the current core.
-    /// </summary>
+    /// <summary>Returns high-level status of the current core.</summary>
+    /// <returns>The operation result.</returns>
     public async Task<StatusResult> StatusAsync()
     {
-        var entries = await drawerStore.GetAllAsync();
+        var entries = await _drawerStore.GetAllAsync();
         var sectors = entries.GroupBy(static item => item.Sector, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
         var vaults = entries.GroupBy(static item => item.Vault, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
-        return new StatusResult(entries.Count, sectors, vaults, Options.CorePath, ProtocolConstants.CoreProtocol, ProtocolConstants.AaakSpec, localModelRuntime.GetStatus());
+        return new StatusResult(entries.Count, sectors, vaults, Options.CorePath, ProtocolConstants.CoreProtocol, ProtocolConstants.AaakSpec, _localModelRuntime.GetStatus());
     }
 
-    /// <summary>
-    /// Returns fallback-safe local model/NPU runtime status.
-    /// </summary>
-    public LocalModelStatusResult LocalModelStatus() => localModelRuntime.GetStatus();
+    /// <summary>Returns fallback-safe local model/NPU runtime status.</summary>
+    /// <returns>The operation result.</returns>
+    public LocalModelStatusResult LocalModelStatus() => _localModelRuntime.GetStatus();
 
-    /// <summary>
-    /// Lists sectors with drawer counts.
-    /// </summary>
+    /// <summary>Lists sectors with drawer counts.</summary>
+    /// <returns>The operation result.</returns>
     public async Task<SectorsResult> ListSectorsAsync()
     {
         var status = await StatusAsync();
         return new SectorsResult(status.Sectors);
     }
 
-    /// <summary>
-    /// Lists vaults, optionally within a sector.
-    /// </summary>
+    /// <summary>Lists vaults, optionally within a sector.</summary>
+    /// <param name="sector">The sector value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<VaultsResult> ListVaultsAsync(string? sector)
     {
-        var entries = await drawerStore.GetAllAsync();
+        var entries = await _drawerStore.GetAllAsync();
         var filtered = sector is null
             ? entries
             : entries.Where(entry => string.Equals(entry.Sector, sector, StringComparison.Ordinal)).ToList();
@@ -148,12 +251,11 @@ public sealed class ReactiveMemoryService
         return new VaultsResult(sector, vaults);
     }
 
-    /// <summary>
-    /// Returns the full sector-vault taxonomy.
-    /// </summary>
+    /// <summary>Returns the full sector-vault taxonomy.</summary>
+    /// <returns>The operation result.</returns>
     public async Task<TaxonomyResult> GetTaxonomyAsync()
     {
-        var entries = await drawerStore.GetAllAsync();
+        var entries = await _drawerStore.GetAllAsync();
         var taxonomy = entries.GroupBy(static item => item.Sector, StringComparer.Ordinal)
             .ToDictionary(
                 group => group.Key,
@@ -163,18 +265,21 @@ public sealed class ReactiveMemoryService
         return new TaxonomyResult(taxonomy);
     }
 
-    /// <summary>
-    /// Executes semantic drawer search.
-    /// </summary>
+    /// <summary>Executes semantic drawer search.</summary>
+    /// <param name="query">The query value.</param>
+    /// <param name="limit">The limit value.</param>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<SearchResult> SearchAsync(string query, int limit, string? sector, string? vault)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
-        var filters = new Dictionary<string, string?>(2)
+        var filters = new Dictionary<string, string?>(SearchFilterCapacity)
         {
             ["sector"] = sector,
             ["vault"] = vault,
         };
-        var vectorResults = await vectorStore.QueryAsync(query, limit, filters);
+        var vectorResults = await _vectorStore.QueryAsync(query, limit, filters);
         var hits = vectorResults.Hits
             .Select(hit => new SearchHit(
                 hit.Id,
@@ -187,18 +292,21 @@ public sealed class ReactiveMemoryService
         return new SearchResult(query, filters, hits);
     }
 
-    /// <summary>
-    /// Executes compact relay/closet search.
-    /// </summary>
+    /// <summary>Executes compact relay/closet search.</summary>
+    /// <param name="query">The query value.</param>
+    /// <param name="limit">The limit value.</param>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<SearchResult> SearchRelaysAsync(string query, int limit, string? sector, string? vault)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
-        var filters = new Dictionary<string, string?>(2)
+        var filters = new Dictionary<string, string?>(SearchFilterCapacity)
         {
             ["sector"] = sector,
             ["vault"] = vault,
         };
-        var vectorResults = await relayVectorStore.QueryAsync(query, limit, filters);
+        var vectorResults = await _relayVectorStore.QueryAsync(query, limit, filters);
         var hits = vectorResults.Hits
             .Select(hit => new SearchHit(
                 hit.Id,
@@ -211,22 +319,47 @@ public sealed class ReactiveMemoryService
         return new SearchResult(query, filters, hits);
     }
 
-    /// <summary>
-    /// Checks for near-duplicate content already stored in the core.
-    /// </summary>
+    /// <summary>Retrieves a compact, sector-diverse context pack by searching relay hints and full memories concurrently.</summary>
+    /// <param name="query">The query value.</param>
+    /// <param name="maxItems">The maxItems value.</param>
+    /// <param name="maxCharacters">The maxCharacters value.</param>
+    /// <param name="searchLimitPerSource">The searchLimitPerSource value.</param>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <param name="cancellationToken">The cancellationToken value.</param>
+    /// <returns>The operation result.</returns>
+    public Task<ContextPackResult> GetContextPackAsync(
+        string query,
+        int maxItems = 8,
+        int maxCharacters = 6000,
+        int searchLimitPerSource = 12,
+        string? sector = null,
+        string? vault = null,
+        CancellationToken cancellationToken = default)
+        => _contextPackService.CreateAsync(
+            query,
+            new ContextPackBudget(maxItems, maxCharacters, searchLimitPerSource),
+            sector,
+            vault,
+            cancellationToken);
+
+    /// <summary>Checks for near-duplicate content already stored in the core.</summary>
+    /// <param name="content">The content value.</param>
+    /// <param name="threshold">The threshold value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<DuplicateCheckResult> CheckDuplicateAsync(string content, double threshold)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(content);
-        var boundedThreshold = double.IsNaN(threshold) ? 0.9 : Math.Clamp(threshold, 0, 1);
+        var boundedThreshold = double.IsNaN(threshold) ? DefaultDuplicateThreshold : Math.Clamp(threshold, 0, 1);
         var normalizedContent = NormalizeForDuplicate(content);
-        var exactMatches = (await drawerStore.GetAllAsync())
+        var exactMatches = (await _drawerStore.GetAllAsync())
             .Where(drawer => string.Equals(NormalizeForDuplicate(drawer.Text), normalizedContent, StringComparison.Ordinal))
             .Select(drawer => new DuplicateMatch(
                 drawer.Id,
                 drawer.Sector,
                 drawer.Vault,
                 1.0,
-                drawer.Text.Length <= 80 ? drawer.Text : drawer.Text[..80]))
+                drawer.Text.Length <= DuplicatePreviewLength ? drawer.Text : drawer.Text[..DuplicatePreviewLength]))
             .ToList();
 
         if (exactMatches.Count > 0)
@@ -234,9 +367,9 @@ public sealed class ReactiveMemoryService
             return new DuplicateCheckResult(true, boundedThreshold, exactMatches);
         }
 
-        var vectorResults = await vectorStore.QueryAsync(content, 50);
+        var vectorResults = await _vectorStore.QueryAsync(content, DuplicateVectorQueryLimit);
         var matches = new List<DuplicateMatch>(vectorResults.Hits.Count);
-        var requiredLexicalScore = Math.Min(0.85, Math.Max(0.55, boundedThreshold));
+        var requiredLexicalScore = Math.Min(MaximumDuplicateLexicalScore, Math.Max(MinimumDuplicateLexicalScore, boundedThreshold));
         for (var i = 0; i < vectorResults.Hits.Count; i++)
         {
             var hit = vectorResults.Hits[i];
@@ -252,106 +385,74 @@ public sealed class ReactiveMemoryService
                 GetMetadataValue(hit.Metadata, "sector"),
                 GetMetadataValue(hit.Metadata, "vault"),
                 duplicateScore,
-                hit.Content.Length <= 80 ? hit.Content : hit.Content[..80]));
+                hit.Content.Length <= DuplicatePreviewLength ? hit.Content : hit.Content[..DuplicatePreviewLength]));
         }
 
         return new DuplicateCheckResult(matches.Count > 0, boundedThreshold, matches);
     }
 
-    /// <summary>
-    /// Adds a verbatim drawer to the core.
-    /// </summary>
+    /// <summary>Adds a verbatim drawer to the core.</summary>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <param name="content">The content value.</param>
+    /// <param name="sourceFile">The sourceFile value.</param>
+    /// <param name="addedBy">The addedBy value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<AddDrawerResult> AddDrawerAsync(string sector, string vault, string content, string? sourceFile, string? addedBy)
         => await AddDrawerCoreAsync(sector, vault, content, sourceFile, addedBy, null);
 
-    private async Task<AddDrawerResult> AddDrawerCoreAsync(string sector, string vault, string content, string? sourceFile, string? addedBy, MemoryClassificationCategory? classificationCategory)
-    {
-        var timestamp = DateTimeOffset.UtcNow;
-        var normalizedSector = SanitizeName(sector, nameof(sector));
-        var normalizedVault = SanitizeName(vault, nameof(vault));
-        var normalizedContent = SanitizeContent(content);
-        var normalizedSourceFile = string.IsNullOrWhiteSpace(sourceFile) ? "?" : sourceFile!;
-        var normalizedAddedBy = string.IsNullOrWhiteSpace(addedBy) ? "mcp" : addedBy!;
-        var categoryKey = classificationCategory is null ? null : ToCategoryKey(classificationCategory.Value);
-        var entryId = CreateEntryId(normalizedSector, normalizedVault, normalizedContent);
-        var entry = new DrawerRecord(
-            entryId,
-            normalizedContent,
-            normalizedSector,
-            normalizedVault,
-            normalizedSourceFile,
-            normalizedAddedBy,
-            timestamp.ToString("O"),
-            timestamp.ToString("yyyy-MM-dd"),
-            null,
-            categoryKey,
-            classificationCategory is null ? null : "memory",
-            null,
-            0,
-            categoryKey);
-
-        var existing = await drawerStore.AddAsync(entry);
-        var stored = existing ?? entry;
-        if (existing is not null)
-        {
-            return new AddDrawerResult(true, stored.Id, stored.Sector, stored.Vault, "already_exists");
-        }
-
-        await UpsertDrawerVectorAsync(stored);
-        await UpsertRelayAsync(stored);
-        var result = new AddDrawerResult(true, stored.Id, stored.Sector, stored.Vault);
-        await writeAheadLog.AppendAsync("add_drawer", new { sector = normalizedSector, vault = normalizedVault, content = normalizedContent, sourceFile, addedBy, classificationCategory = categoryKey }, result);
-        return result;
-    }
-
-    /// <summary>
-    /// Deletes a drawer by identifier.
-    /// </summary>
+    /// <summary>Deletes a drawer by identifier.</summary>
+    /// <param name="drawerId">The drawerId value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<DeleteDrawerResult> DeleteDrawerAsync(string drawerId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(drawerId);
-        var deleted = await drawerStore.DeleteAsync(drawerId);
-        await vectorStore.DeleteAsync(drawerId);
-        await relayVectorStore.DeleteAsync(drawerId);
+        var deleted = await _drawerStore.DeleteAsync(drawerId);
+        await _vectorStore.DeleteAsync(drawerId);
+        await _relayVectorStore.DeleteAsync(drawerId);
         var result = deleted
             ? new DeleteDrawerResult(true, drawerId)
             : new DeleteDrawerResult(false, drawerId, "Entry not found");
-        await writeAheadLog.AppendAsync("delete_drawer", new { drawerId }, result);
+        await _writeAheadLog.AppendAsync(
+            "delete_drawer",
+            LogPayload.Create(("drawerId", drawerId)),
+            result);
         return result;
     }
 
-    /// <summary>
-    /// Fetches a single drawer with full metadata.
-    /// </summary>
+    /// <summary>Fetches a single drawer with full metadata.</summary>
+    /// <param name="drawerId">The drawerId value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<DrawerDetailsResult> GetDrawerAsync(string drawerId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(drawerId);
-        var drawer = await drawerStore.GetByIdAsync(drawerId);
+        var drawer = await _drawerStore.GetByIdAsync(drawerId);
         return drawer is null
             ? new DrawerDetailsResult(null, false, "Drawer not found")
             : new DrawerDetailsResult(drawer, true);
     }
 
-    /// <summary>
-    /// Lists drawers with optional filters and paging.
-    /// </summary>
-    public async Task<DrawerListResult> ListDrawersAsync(string? sector, string? vault, int limit, int offset)
-    {
-        var entries = await drawerStore.GetAllAsync();
-        var boundedLimit = Math.Clamp(limit, 1, 200);
-        var boundedOffset = Math.Max(0, offset);
-        var filtered = entries
-            .Where(drawer => sector is null || string.Equals(drawer.Sector, sector, StringComparison.Ordinal))
-            .Where(drawer => vault is null || string.Equals(drawer.Vault, vault, StringComparison.Ordinal))
-            .OrderByDescending(drawer => drawer.FiledAt, StringComparer.Ordinal)
-            .ToList();
-        var page = filtered.Skip(boundedOffset).Take(boundedLimit).ToList();
-        return new DrawerListResult(page, filtered.Count, boundedLimit, boundedOffset, sector, vault);
-    }
+    /// <summary>Lists drawers with optional filters and paging.</summary>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <param name="limit">The limit value.</param>
+    /// <param name="offset">The offset value.</param>
+    /// <returns>The operation result.</returns>
+    public Task<DrawerListResult> ListDrawersAsync(string? sector, string? vault, int limit, int offset)
+        => ListDrawersCoreAsync(sector, vault, limit, offset);
 
-    /// <summary>
-    /// Updates drawer content and/or filing location.
-    /// </summary>
+    /// <summary>Inspects legacy vector indexes and optionally reconciles them with the drawer source of truth.</summary>
+    /// <param name="apply">Whether detected vector upgrades should be persisted. The default is a non-destructive dry run.</param>
+    /// <returns>A compatibility and migration summary.</returns>
+    public Task<StorageMigrationResult> MigrateLegacyStorageAsync(bool apply = false)
+        => MigrateLegacyStorageCoreAsync(apply);
+
+    /// <summary>Updates drawer content and/or filing location.</summary>
+    /// <param name="drawerId">The drawerId value.</param>
+    /// <param name="content">The content value.</param>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<UpdateDrawerResult> UpdateDrawerAsync(string drawerId, string? content, string? sector, string? vault)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(drawerId);
@@ -360,7 +461,7 @@ public sealed class ReactiveMemoryService
             return new UpdateDrawerResult(false, drawerId, null, "At least one field must be supplied.");
         }
 
-        var existing = await drawerStore.GetByIdAsync(drawerId);
+        var existing = await _drawerStore.GetByIdAsync(drawerId);
         if (existing is null)
         {
             return new UpdateDrawerResult(false, drawerId, null, "Drawer not found");
@@ -373,57 +474,88 @@ public sealed class ReactiveMemoryService
             Vault = vault is null ? existing.Vault : SanitizeName(vault, nameof(vault)),
         };
 
-        await drawerStore.UpdateAsync(updated);
+        await _drawerStore.UpdateAsync(updated);
         await UpsertDrawerVectorAsync(updated);
         await UpsertRelayAsync(updated);
         var result = new UpdateDrawerResult(true, drawerId, updated);
-        await writeAheadLog.AppendAsync("update_drawer", new { drawerId, content, sector, vault }, result);
+        await _writeAheadLog.AppendAsync(
+            "update_drawer",
+            LogPayload.Create(
+            ("drawerId", drawerId),
+            ("content", content),
+            ("sector", sector),
+            ("vault", vault)),
+            result);
         return result;
     }
 
-    /// <summary>
-    /// Adds a fact triple to the temporal knowledge graph.
-    /// </summary>
+    /// <summary>Adds a fact triple to the temporal knowledge graph.</summary>
+    /// <param name="subject">The subject value.</param>
+    /// <param name="predicate">The predicate value.</param>
+    /// <param name="obj">The obj value.</param>
+    /// <param name="validFrom">The validFrom value.</param>
+    /// <param name="sourceVault">The sourceVault value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<KnowledgeGraphAddResult> KnowledgeGraphAddAsync(string subject, string predicate, string obj, string? validFrom, string? sourceVault)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(predicate);
         ArgumentException.ThrowIfNullOrWhiteSpace(obj);
 
-        var normalizedPredicate = NormalizePredicate(predicate);
+        var normalizedPredicate = MemoryText.NormalizePredicate(predicate);
         var effectiveValidFrom = string.IsNullOrWhiteSpace(validFrom)
             ? DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd")
             : validFrom;
-        var tripleId = await knowledgeGraphStore.AddTripleAsync(subject, normalizedPredicate, obj, effectiveValidFrom, null, 1.0, sourceVault, null);
+        var tripleId = await _knowledgeGraphStore.AddTripleAsync(subject, normalizedPredicate, obj, effectiveValidFrom, null, 1.0, sourceVault, null);
         var result = new KnowledgeGraphAddResult(true, tripleId, subject, normalizedPredicate, obj);
-        await writeAheadLog.AppendAsync("kg_add", new { subject, predicate = normalizedPredicate, obj, validFrom, sourceVault }, result);
+        await _writeAheadLog.AppendAsync(
+            "kg_add",
+            LogPayload.Create(
+            ("subject", subject),
+            ("predicate", normalizedPredicate),
+            ("obj", obj),
+            ("validFrom", validFrom),
+            ("sourceVault", sourceVault)),
+            result);
         return result;
     }
 
-    /// <summary>
-    /// Invalidates an active fact triple.
-    /// </summary>
+    /// <summary>Invalidates an active fact triple.</summary>
+    /// <param name="subject">The subject value.</param>
+    /// <param name="predicate">The predicate value.</param>
+    /// <param name="obj">The obj value.</param>
+    /// <param name="ended">The ended value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<KnowledgeGraphInvalidateResult> KnowledgeGraphInvalidateAsync(string subject, string predicate, string obj, string? ended)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(predicate);
         ArgumentException.ThrowIfNullOrWhiteSpace(obj);
 
-        var normalizedPredicate = NormalizePredicate(predicate);
+        var normalizedPredicate = MemoryText.NormalizePredicate(predicate);
         var value = string.IsNullOrWhiteSpace(ended)
             ? DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd")
             : ended;
-        var invalidated = await knowledgeGraphStore.InvalidateAsync(subject, normalizedPredicate, obj, value!);
+        var invalidated = await _knowledgeGraphStore.InvalidateAsync(subject, normalizedPredicate, obj, value!);
         var result = invalidated
             ? new KnowledgeGraphInvalidateResult(true, subject, normalizedPredicate, obj, value!)
             : new KnowledgeGraphInvalidateResult(false, subject, normalizedPredicate, obj, value!, "No matching active fact was found.");
-        await writeAheadLog.AppendAsync("kg_invalidate", new { subject, predicate = normalizedPredicate, obj, ended = value }, result);
+        await _writeAheadLog.AppendAsync(
+            "kg_invalidate",
+            LogPayload.Create(
+            ("subject", subject),
+            ("predicate", normalizedPredicate),
+            ("obj", obj),
+            ("ended", value)),
+            result);
         return result;
     }
 
-    /// <summary>
-    /// Queries facts for an entity.
-    /// </summary>
+    /// <summary>Queries facts for an entity.</summary>
+    /// <param name="entity">The entity value.</param>
+    /// <param name="asOf">The asOf value.</param>
+    /// <param name="direction">The direction value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<KnowledgeGraphQueryResult> KnowledgeGraphQueryAsync(string entity, string? asOf, string? direction)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(entity);
@@ -433,45 +565,53 @@ public sealed class ReactiveMemoryService
             throw new ArgumentException("direction must be outgoing, incoming, or both.", nameof(direction));
         }
 
-        var facts = await knowledgeGraphStore.QueryEntityAsync(entity, asOf, actualDirection);
+        var facts = await _knowledgeGraphStore.QueryEntityAsync(entity, asOf, actualDirection);
         return new KnowledgeGraphQueryResult(entity, actualDirection, asOf, facts);
     }
 
-    /// <summary>
-    /// Returns a timeline of fact changes.
-    /// </summary>
+    /// <summary>Returns a timeline of fact changes.</summary>
+    /// <param name="entity">The entity value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<KnowledgeGraphTimelineResult> KnowledgeGraphTimelineAsync(string? entity)
-        => new(entity, await knowledgeGraphStore.TimelineAsync(entity));
+        => new(entity, await _knowledgeGraphStore.TimelineAsync(entity));
 
-    /// <summary>
-    /// Returns knowledge graph statistics.
-    /// </summary>
-    public Task<KnowledgeGraphStatsResult> KnowledgeGraphStatsAsync() => knowledgeGraphStore.StatsAsync();
+    /// <summary>Returns knowledge graph statistics.</summary>
+    /// <returns>The operation result.</returns>
+    public Task<KnowledgeGraphStatsResult> KnowledgeGraphStatsAsync() => _knowledgeGraphStore.StatsAsync();
 
-    /// <summary>
-    /// Traverses the derived vault graph.
-    /// </summary>
+    /// <summary>Traverses the derived vault graph.</summary>
+    /// <param name="startVault">The startVault value.</param>
+    /// <param name="maxHops">The maxHops value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<TraverseResult> TraverseAsync(string startVault, int maxHops)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(startVault);
-        return CoreGraphService.Traverse(await drawerStore.GetAllAsync(), startVault, maxHops);
+        return CoreGraphService.Traverse(await _drawerStore.GetAllAsync(), startVault, maxHops);
     }
 
-    /// <summary>
-    /// Finds implicit tunnel vaults across sectors.
-    /// </summary>
+    /// <summary>Finds implicit tunnel vaults across sectors.</summary>
+    /// <param name="sectorA">The sectorA value.</param>
+    /// <param name="sectorB">The sectorB value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<TunnelsResult> FindTunnelsAsync(string? sectorA, string? sectorB)
-        => CoreGraphService.FindTunnels(await drawerStore.GetAllAsync(), sectorA, sectorB);
+        => CoreGraphService.FindTunnels(await _drawerStore.GetAllAsync(), sectorA, sectorB);
 
-    /// <summary>
-    /// Returns implicit graph statistics.
-    /// </summary>
+    /// <summary>Returns implicit graph statistics.</summary>
+    /// <returns>The operation result.</returns>
     public async Task<GraphStatsResult> GraphStatsAsync()
-        => CoreGraphService.Stats(await drawerStore.GetAllAsync());
+        => CoreGraphService.Stats(await _drawerStore.GetAllAsync());
 
-    /// <summary>
-    /// Creates or updates an explicit tunnel.
-    /// </summary>
+    /// <summary>Creates or updates an explicit tunnel.</summary>
+    /// <param name="sourceSector">The sourceSector value.</param>
+    /// <param name="sourceVault">The sourceVault value.</param>
+    /// <param name="targetSector">The targetSector value.</param>
+    /// <param name="targetVault">The targetVault value.</param>
+    /// <param name="tunnelType">The tunnelType value.</param>
+    /// <param name="description">The description value.</param>
+    /// <param name="createdBy">The createdBy value.</param>
+    /// <param name="sourceDrawerId">The sourceDrawerId value.</param>
+    /// <param name="targetDrawerId">The targetDrawerId value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<CreateTunnelResult> CreateTunnelAsync(
         string sourceSector,
         string sourceVault,
@@ -503,18 +643,30 @@ public sealed class ReactiveMemoryService
             normalizedCreatedBy,
             sourceDrawerId,
             targetDrawerId);
-        var existing = await explicitTunnelStore.UpsertAsync(record);
+        var existing = await _explicitTunnelStore.UpsertAsync(record);
         var result = new CreateTunnelResult(true, record, existing is null ? null : "updated_existing");
-        await writeAheadLog.AppendAsync("create_tunnel", new { sourceSector, sourceVault, targetSector, targetVault, tunnelType, description, createdBy, sourceDrawerId, targetDrawerId }, result);
+        await _writeAheadLog.AppendAsync(
+            "create_tunnel",
+            LogPayload.Create(
+            ("sourceSector", sourceSector),
+            ("sourceVault", sourceVault),
+            ("targetSector", targetSector),
+            ("targetVault", targetVault),
+            ("tunnelType", tunnelType),
+            ("description", description),
+            ("createdBy", createdBy),
+            ("sourceDrawerId", sourceDrawerId),
+            ("targetDrawerId", targetDrawerId)),
+            result);
         return result;
     }
 
-    /// <summary>
-    /// Lists explicit tunnels.
-    /// </summary>
+    /// <summary>Lists explicit tunnels.</summary>
+    /// <param name="sector">The sector value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<ExplicitTunnelsResult> ListTunnelsAsync(string? sector)
     {
-        var tunnels = await explicitTunnelStore.GetAllAsync();
+        var tunnels = await _explicitTunnelStore.GetAllAsync();
         if (string.IsNullOrWhiteSpace(sector))
         {
             return new ExplicitTunnelsResult(tunnels);
@@ -527,28 +679,32 @@ public sealed class ReactiveMemoryService
         return new ExplicitTunnelsResult(filtered, normalizedSector);
     }
 
-    /// <summary>
-    /// Deletes an explicit tunnel.
-    /// </summary>
+    /// <summary>Deletes an explicit tunnel.</summary>
+    /// <param name="tunnelId">The tunnelId value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<DeleteTunnelResult> DeleteTunnelAsync(string tunnelId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(tunnelId);
-        var deleted = await explicitTunnelStore.DeleteAsync(tunnelId);
+        var deleted = await _explicitTunnelStore.DeleteAsync(tunnelId);
         var result = deleted
             ? new DeleteTunnelResult(true, tunnelId)
             : new DeleteTunnelResult(false, tunnelId, "Tunnel not found");
-        await writeAheadLog.AppendAsync("delete_tunnel", new { tunnelId }, result);
+        await _writeAheadLog.AppendAsync(
+            "delete_tunnel",
+            LogPayload.Create(("tunnelId", tunnelId)),
+            result);
         return result;
     }
 
-    /// <summary>
-    /// Follows explicit tunnels from a starting sector/vault.
-    /// </summary>
+    /// <summary>Follows explicit tunnels from a starting sector/vault.</summary>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<FollowTunnelsResult> FollowTunnelsAsync(string sector, string vault)
     {
         var normalizedSector = SanitizeName(sector, nameof(sector));
         var normalizedVault = SanitizeName(vault, nameof(vault));
-        var allTunnels = await explicitTunnelStore.GetAllAsync();
+        var allTunnels = await _explicitTunnelStore.GetAllAsync();
         var connectedTunnels = allTunnels
             .Where(tunnel =>
                 (string.Equals(tunnel.SourceSector, normalizedSector, StringComparison.Ordinal) && string.Equals(tunnel.SourceVault, normalizedVault, StringComparison.Ordinal)) ||
@@ -560,7 +716,7 @@ public sealed class ReactiveMemoryService
         {
             if (!string.IsNullOrWhiteSpace(tunnel.SourceDrawerId))
             {
-                var drawer = await drawerStore.GetByIdAsync(tunnel.SourceDrawerId);
+                var drawer = await _drawerStore.GetByIdAsync(tunnel.SourceDrawerId);
                 if (drawer is not null)
                 {
                     linkedDrawers.Add(drawer);
@@ -569,7 +725,7 @@ public sealed class ReactiveMemoryService
 
             if (!string.IsNullOrWhiteSpace(tunnel.TargetDrawerId))
             {
-                var drawer = await drawerStore.GetByIdAsync(tunnel.TargetDrawerId);
+                var drawer = await _drawerStore.GetByIdAsync(tunnel.TargetDrawerId);
                 if (drawer is not null)
                 {
                     linkedDrawers.Add(drawer);
@@ -581,9 +737,11 @@ public sealed class ReactiveMemoryService
         return new FollowTunnelsResult(normalizedSector, normalizedVault, connectedTunnels, distinctDrawers);
     }
 
-    /// <summary>
-    /// Writes an agent diary entry.
-    /// </summary>
+    /// <summary>Writes an agent diary entry.</summary>
+    /// <param name="agentName">The agentName value.</param>
+    /// <param name="entry">The entry value.</param>
+    /// <param name="topic">The topic value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<DiaryWriteResult> DiaryWriteAsync(string agentName, string entry, string? topic)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
@@ -607,29 +765,36 @@ public sealed class ReactiveMemoryService
             "diary_entry",
             agentName,
             0);
-        await drawerStore.AddAsync(record);
+        await _drawerStore.AddAsync(record);
         await UpsertDrawerVectorAsync(record);
         await UpsertRelayAsync(record);
         var result = new DiaryWriteResult(true, entryId, agentName, normalizedTopic, timestamp.ToString("O"));
-        await hookStateStore.WriteCheckpointAsync(new Dictionary<string, string?>
+        await _hookStateStore.WriteCheckpointAsync(new Dictionary<string, string?>
         {
             ["timestamp"] = timestamp.ToString("O"),
             ["agent"] = agentName,
             ["drawerId"] = entryId,
             ["summary"] = $"Diary saved for {agentName} ({normalizedTopic})",
         });
-        await writeAheadLog.AppendAsync("diary_write", new { agentName, entry, topic = normalizedTopic }, result);
+        await _writeAheadLog.AppendAsync(
+            "diary_write",
+            LogPayload.Create(
+            ("agentName", agentName),
+            ("entry", entry),
+            ("topic", normalizedTopic)),
+            result);
         return result;
     }
 
-    /// <summary>
-    /// Reads recent diary entries for an agent.
-    /// </summary>
+    /// <summary>Reads recent diary entries for an agent.</summary>
+    /// <param name="agentName">The agentName value.</param>
+    /// <param name="lastN">The lastN value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<DiaryReadResult> DiaryReadAsync(string agentName, int lastN)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
         var sector = $"sector_{KnowledgeGraphStore.ToEntityId(agentName)}";
-        var allEntries = (await drawerStore.GetAllAsync())
+        var allEntries = (await _drawerStore.GetAllAsync())
             .Where(drawer => string.Equals(drawer.Sector, sector, StringComparison.Ordinal) && string.Equals(drawer.Vault, "diary", StringComparison.Ordinal))
             .OrderByDescending(drawer => drawer.FiledAt, StringComparer.Ordinal)
             .ToList();
@@ -640,74 +805,80 @@ public sealed class ReactiveMemoryService
         return new DiaryReadResult(agentName, entries, allEntries.Count, entries.Count, entries.Count == 0 ? "No diary entries yet." : null);
     }
 
-    /// <summary>
-    /// Gets or updates hook settings.
-    /// </summary>
+    /// <summary>Gets or updates hook settings.</summary>
+    /// <param name="silentSave">The silentSave value.</param>
+    /// <param name="desktopToast">The desktopToast value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<HookSettingsResult> HookSettingsAsync(bool? silentSave, bool? desktopToast)
     {
-        var (resolvedSilentSave, resolvedDesktopToast, updated) = await hookStateStore.UpdateSettingsAsync(silentSave, desktopToast);
+        var (resolvedSilentSave, resolvedDesktopToast, updated) = await _hookStateStore.UpdateSettingsAsync(silentSave, desktopToast);
         var result = new HookSettingsResult(resolvedSilentSave, resolvedDesktopToast, updated);
         if (silentSave.HasValue || desktopToast.HasValue)
         {
-            await writeAheadLog.AppendAsync("hook_settings", new { silentSave, desktopToast }, result);
+            await _writeAheadLog.AppendAsync(
+                "hook_settings",
+                LogPayload.Create(
+                ("silentSave", silentSave),
+                ("desktopToast", desktopToast)),
+            result);
         }
 
         return result;
     }
 
-    /// <summary>
-    /// Acknowledges the latest filed-away checkpoint.
-    /// </summary>
+    /// <summary>Acknowledges the latest filed-away checkpoint.</summary>
+    /// <returns>The operation result.</returns>
     public async Task<MemoriesFiledAwayResult> MemoriesFiledAwayAsync()
     {
-        var checkpoint = await hookStateStore.AcknowledgeCheckpointAsync();
+        var checkpoint = await _hookStateStore.AcknowledgeCheckpointAsync();
         if (checkpoint is null)
         {
             return new MemoriesFiledAwayResult(false, null, "No checkpoint available.");
         }
 
-        checkpoint.TryGetValue("timestamp", out var timestamp);
-        checkpoint.TryGetValue("summary", out var summary);
+        _ = checkpoint.TryGetValue("timestamp", out var timestamp);
+        _ = checkpoint.TryGetValue("summary", out var summary);
         return new MemoriesFiledAwayResult(true, DateTimeOffset.UtcNow.ToString("O"), summary ?? "Checkpoint acknowledged.", checkpoint);
     }
 
-    /// <summary>
-    /// Looks up a learned entity by name.
-    /// </summary>
+    /// <summary>Looks up a learned entity by name.</summary>
+    /// <param name="name">The name value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<EntityLookupResult> EntityLookupAsync(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        var match = await entityRegistry.LookupAsync(name);
+        var match = await _entityRegistry.LookupAsync(name);
         return new EntityLookupResult(match.Name, match.Type, match.Found);
     }
 
-    /// <summary>
-    /// Lists learned entities collected by prompt reaction and mining.
-    /// </summary>
+    /// <summary>Lists learned entities collected by prompt reaction and mining.</summary>
+    /// <returns>The operation result.</returns>
     public async Task<EntityListResult> EntityListAsync()
     {
-        var (people, projects) = await entityRegistry.ListAsync();
+        var (people, projects) = await _entityRegistry.ListAsync();
         var peopleResults = people.Select(static item => new ReactiveMemoryEntity(item.Name, item.Type)).ToList();
         var projectResults = projects.Select(static item => new ReactiveMemoryEntity(item.Name, item.Type)).ToList();
         return new EntityListResult(peopleResults, projectResults, peopleResults.Count + projectResults.Count);
     }
 
-    /// <summary>
-    /// Reinitializes lightweight caches and stores.
-    /// </summary>
+    /// <summary>Reinitializes lightweight caches and stores.</summary>
+    /// <returns>The operation result.</returns>
     public async Task<ReconnectResult> ReconnectAsync()
     {
-        await vectorStore.InitializeAsync();
-        await relayVectorStore.InitializeAsync();
-        await explicitTunnelStore.InitializeAsync();
-        await hookStateStore.InitializeAsync();
-        await entityRegistry.InitializeAsync();
+        await _vectorStore.InitializeAsync();
+        await _relayVectorStore.InitializeAsync();
+        await _explicitTunnelStore.InitializeAsync();
+        await _hookStateStore.InitializeAsync();
+        await _entityRegistry.InitializeAsync();
         return new ReconnectResult(true, "ReactiveMemory stores reinitialized successfully.");
     }
 
-    /// <summary>
-    /// Reacts to a user prompt by recalling memories, learning entities, and checkpointing prompt context.
-    /// </summary>
+    /// <summary>Reacts to a user prompt by recalling memories, learning entities, and checkpointing prompt context.</summary>
+    /// <param name="prompt">The prompt value.</param>
+    /// <param name="agentName">The agentName value.</param>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<PromptReactionResult> ReactToPromptAsync(string prompt, string? agentName = null, string? sector = null, string? vault = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
@@ -720,7 +891,7 @@ public sealed class ReactiveMemoryService
         var detection = EntityDetector.Detect(normalizedPrompt);
         if (Options.PromptEntityLearningEnabled)
         {
-            await entityRegistry.LearnAsync(detection);
+            await _entityRegistry.LearnAsync(detection);
         }
 
         AddDrawerResult addResult;
@@ -728,7 +899,7 @@ public sealed class ReactiveMemoryService
         if (duplicate.IsDuplicate && duplicate.Matches.Count > 0)
         {
             var match = duplicate.Matches[0];
-            addResult = new AddDrawerResult(true, match.DrawerId, match.Sector, match.Vault, "already_exists");
+            addResult = new(true, match.DrawerId, match.Sector, match.Vault, "already_exists");
         }
         else
         {
@@ -737,7 +908,7 @@ public sealed class ReactiveMemoryService
         }
 
         var checkpointSummary = $"Prompt filed for {resolvedAgent}: {(promptStored ? "stored" : "matched existing")} ({addResult.DrawerId})";
-        await hookStateStore.WriteCheckpointAsync(new Dictionary<string, string?>
+        await _hookStateStore.WriteCheckpointAsync(new Dictionary<string, string?>
         {
             ["timestamp"] = DateTimeOffset.UtcNow.ToString("O"),
             ["agent"] = resolvedAgent,
@@ -745,10 +916,17 @@ public sealed class ReactiveMemoryService
             ["summary"] = checkpointSummary,
             ["duplicate"] = duplicate.IsDuplicate.ToString(),
         });
-        await writeAheadLog.AppendAsync(
+        await _writeAheadLog.AppendAsync(
             "react_to_prompt",
-            new { prompt = normalizedPrompt, agentName = resolvedAgent, sector = resolvedSector, vault = resolvedVault },
-            new { drawerId = addResult.DrawerId, duplicate = duplicate.IsDuplicate, relatedCount = related.Results.Count });
+            LogPayload.Create(
+                ("prompt", normalizedPrompt),
+                ("agentName", resolvedAgent),
+                ("sector", resolvedSector),
+                ("vault", resolvedVault)),
+            LogPayload.Create(
+                ("drawerId", addResult.DrawerId),
+                ("duplicate", duplicate.IsDuplicate),
+                ("relatedCount", related.Results.Count)));
 
         return new PromptReactionResult(
             resolvedAgent,
@@ -762,9 +940,9 @@ public sealed class ReactiveMemoryService
             checkpointSummary);
     }
 
-    /// <summary>
-    /// Classifies a memory/message before storage.
-    /// </summary>
+    /// <summary>Classifies a memory/message before storage.</summary>
+    /// <param name="content">The content value.</param>
+    /// <returns>The operation result.</returns>
     public Task<MemoryClassificationResult> ClassifyMemoryAsync(string content)
     {
         var normalizedContent = SanitizeContent(content);
@@ -776,44 +954,50 @@ public sealed class ReactiveMemoryService
             : GetStorageLocation(category);
         var confidence = category switch
         {
-            MemoryClassificationCategory.SensitiveDoNotStore => 0.99,
-            MemoryClassificationCategory.PersonalPreference => 0.9,
-            MemoryClassificationCategory.ShortTermContext => 0.82,
-            MemoryClassificationCategory.Irrelevant => 0.85,
-            _ => 0.78,
+            MemoryClassificationCategory.SensitiveDoNotStore => SensitiveClassificationConfidence,
+            MemoryClassificationCategory.PersonalPreference => PersonalPreferenceClassificationConfidence,
+            MemoryClassificationCategory.ShortTermContext => ShortTermClassificationConfidence,
+            MemoryClassificationCategory.Irrelevant => IrrelevantClassificationConfidence,
+            _ => DurableClassificationConfidence,
         };
-        var reason = shouldStore
-            ? $"classified_as:{categoryKey}"
-            : category == MemoryClassificationCategory.SensitiveDoNotStore
-                ? "classification_rejected:sensitive_do_not_store"
-                : "classification_rejected:irrelevant";
+        var reason = category switch
+        {
+            _ when shouldStore => $"classified_as:{categoryKey}",
+            MemoryClassificationCategory.SensitiveDoNotStore => "classification_rejected:sensitive_do_not_store",
+            _ => "classification_rejected:irrelevant",
+        };
         return Task.FromResult(new MemoryClassificationResult(category, shouldStore, confidence, reason, categoryKey, sector, vault));
     }
 
-    /// <summary>
-    /// Returns a should-store decision without writing memory.
-    /// </summary>
+    /// <summary>Returns a should-store decision without writing memory.</summary>
+    /// <param name="content">The content value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<ShouldStoreMemoryResult> ShouldStoreMemoryAsync(string content)
     {
         var classification = await ClassifyMemoryAsync(content);
         return new ShouldStoreMemoryResult(classification.ShouldStore, classification, classification.Reason);
     }
 
-    /// <summary>
-    /// MCP-facing memory.add equivalent. Classifies before storing and never stores sensitive/do-not-store content.
-    /// </summary>
+    /// <summary>MCP-facing memory.add equivalent. Classifies before storing and never stores sensitive/do-not-store content.</summary>
+    /// <param name="content">The content value.</param>
+    /// <param name="agentName">The agentName value.</param>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <returns>The operation result.</returns>
     public Task<AutoManageMemoryResult> AddMemoryAsync(string content, string? agentName = null, string? sector = null, string? vault = null)
         => AutoManageMemoryAsync(content, agentName, sector, vault, summariseIfLarge: false, prune: false);
 
-    /// <summary>
-    /// MCP-facing memory.getRelevant equivalent.
-    /// </summary>
+    /// <summary>MCP-facing memory.getRelevant equivalent.</summary>
+    /// <param name="query">The query value.</param>
+    /// <param name="limit">The limit value.</param>
+    /// <param name="category">The category value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<SearchResult> GetRelevantMemoryAsync(string query, int limit = 5, MemoryClassificationCategory? category = null)
     {
         var filters = category is null
             ? null
             : new Dictionary<string, string?> { ["classification_category"] = ToCategoryKey(category.Value) };
-        var vectorResults = await vectorStore.QueryAsync(query, limit, filters);
+        var vectorResults = await _vectorStore.QueryAsync(query, limit, filters);
         var hits = vectorResults.Hits
             .Select(hit => new SearchHit(
                 hit.Id,
@@ -827,9 +1011,14 @@ public sealed class ReactiveMemoryService
         return new SearchResult(query, filters ?? new Dictionary<string, string?>(), hits);
     }
 
-    /// <summary>
-    /// MCP-facing memory.automanage equivalent. Performs classify -&gt; embed/store -&gt; optional summarise/prune.
-    /// </summary>
+    /// <summary>MCP-facing memory.automanage equivalent. Performs classify -&gt; embed/store -&gt; optional summarise/prune.</summary>
+    /// <param name="content">The content value.</param>
+    /// <param name="agentName">The agentName value.</param>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <param name="summariseIfLarge">The summariseIfLarge value.</param>
+    /// <param name="prune">The prune value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<AutoManageMemoryResult> AutoManageMemoryAsync(
         string content,
         string? agentName = null,
@@ -844,15 +1033,15 @@ public sealed class ReactiveMemoryService
         if (!classification.ShouldStore)
         {
             auditEvents.Add(classification.Reason);
-            await writeAheadLog.AppendAsync(
+            await _writeAheadLog.AppendAsync(
                 "memory_automanage_rejected",
-                new
-                {
-                    classification.CategoryKey,
-                    classification.Reason,
-                    ContentLength = content.Length,
-                },
-                new { classification.ShouldStore, classification.Reason });
+                LogPayload.Create(
+                    ("CategoryKey", classification.CategoryKey),
+                    ("Reason", classification.Reason),
+                    ("ContentLength", content.Length)),
+                LogPayload.Create(
+                    ("ShouldStore", classification.ShouldStore),
+                    ("Reason", classification.Reason)));
             return new AutoManageMemoryResult(false, null, classification, auditEvents, classification.Reason);
         }
 
@@ -875,17 +1064,27 @@ public sealed class ReactiveMemoryService
         MemoryPruneResult? pruning = null;
         if (prune)
         {
-            pruning = await PruneMemoryAsync(apply: false);
-            auditEvents.Add("prune_checked:dry_run");
+            var automaticPrune = await TryRunAutomaticPruneAsync();
+            pruning = automaticPrune.Result;
+            auditEvents.Add(automaticPrune.AuditEvent);
         }
 
-        await writeAheadLog.AppendAsync("memory_automanage", new { classification.CategoryKey, content, agentName }, new { drawerId = add.DrawerId, add.Reason });
+        await _writeAheadLog.AppendAsync(
+            "memory_automanage",
+            LogPayload.Create(
+                ("CategoryKey", classification.CategoryKey),
+                ("content", content),
+                ("agentName", agentName)),
+            LogPayload.Create(
+                ("drawerId", add.DrawerId),
+                ("Reason", add.Reason)));
         return new AutoManageMemoryResult(add.Reason is null, add.DrawerId, classification, auditEvents, add.Reason, summary, pruning);
     }
 
-    /// <summary>
-    /// Summarises memories using a linked local model when available, otherwise deterministic local compression.
-    /// </summary>
+    /// <summary>Summarises memories using a linked local model when available, otherwise deterministic local compression.</summary>
+    /// <param name="memories">The memories value.</param>
+    /// <param name="category">The category value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<MemorySummaryResult> SummariseMemoriesAsync(IEnumerable<string> memories, MemoryClassificationCategory? category = null)
     {
         ArgumentNullException.ThrowIfNull(memories);
@@ -897,7 +1096,7 @@ public sealed class ReactiveMemoryService
         }
 
         var prompt = BuildSummaryPrompt(items, category);
-        var generation = await localModelRuntime.TryGenerateTextAsync(prompt);
+        var generation = await _localModelRuntime.TryGenerateTextAsync(prompt);
         if (generation.Success && !string.IsNullOrWhiteSpace(generation.Text))
         {
             auditEvents.Add($"summary_local_model:{generation.Provider}");
@@ -913,12 +1112,13 @@ public sealed class ReactiveMemoryService
         return new MemorySummaryResult(BuildDeterministicSummary(items), items.Count, category, false, "deterministic-fallback", auditEvents);
     }
 
-    /// <summary>
-    /// Recommends or explicitly applies safe pruning actions. Dry-run is the default.
-    /// </summary>
+    /// <summary>Recommends or explicitly applies safe pruning actions. Dry-run is the default.</summary>
+    /// <param name="apply">The apply value.</param>
+    /// <param name="duplicateThreshold">The duplicateThreshold value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<MemoryPruneResult> PruneMemoryAsync(bool apply = false, double duplicateThreshold = 0.92)
     {
-        var drawers = (await drawerStore.GetAllAsync()).OrderBy(static item => item.FiledAt, StringComparer.Ordinal).ToList();
+        var drawers = (await _drawerStore.GetAllAsync()).OrderBy(static item => item.FiledAt, StringComparer.Ordinal).ToList();
         var recommendations = BuildPruneRecommendations(drawers, duplicateThreshold, Options.ShortTermContextRetentionDays);
         var auditId = $"memory_prune_{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}";
         var auditEvents = new List<string> { apply ? "prune_apply_explicit" : "prune_dry_run", "prune_audit_id:" + auditId };
@@ -935,68 +1135,41 @@ public sealed class ReactiveMemoryService
         }
 
         var result = new MemoryPruneResult(apply, recommendations, deleted, auditEvents, auditId);
-        await writeAheadLog.AppendAsync("memory_prune", new { apply, duplicateThreshold, auditId }, result);
+        await _writeAheadLog.AppendAsync(
+            "memory_prune",
+            LogPayload.Create(
+            ("apply", apply),
+            ("duplicateThreshold", duplicateThreshold),
+            ("auditId", auditId)),
+            result);
         return result;
     }
 
-    private async Task UpsertDrawerVectorAsync(DrawerRecord entry)
-    {
-        await vectorStore.UpsertAsync(new VectorRecord(
-            entry.Id,
-            entry.Text,
-            new Dictionary<string, string?>
-            {
-                ["sector"] = entry.Sector,
-                ["vault"] = entry.Vault,
-                ["source_file"] = entry.SourceFile,
-                ["added_by"] = entry.AddedBy,
-                ["date"] = entry.Date,
-                ["relay"] = entry.Relay,
-                ["topic"] = entry.Topic,
-                ["type"] = entry.Type,
-                ["agent"] = entry.Agent,
-                ["classification_category"] = entry.ClassificationCategory,
-            }));
-    }
-
-    private async Task UpsertRelayAsync(DrawerRecord entry)
-    {
-        var relayContent = BuildRelayContent(entry);
-        await relayVectorStore.UpsertAsync(new VectorRecord(
-            entry.Id,
-            relayContent,
-            new Dictionary<string, string?>
-            {
-                ["sector"] = entry.Sector,
-                ["vault"] = entry.Vault,
-                ["source_file"] = entry.SourceFile,
-                ["relay"] = entry.Relay,
-                ["topic"] = entry.Topic,
-                ["type"] = entry.Type,
-                ["agent"] = entry.Agent,
-                ["classification_category"] = entry.ClassificationCategory,
-            }));
-    }
-
+    /// <summary>Documents the BuildRelayContent member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="entry">The entry value.</param>
     private static string BuildRelayContent(DrawerRecord entry)
     {
         var topic = string.IsNullOrWhiteSpace(entry.Topic) ? entry.Vault : entry.Topic;
-        var preview = entry.Text.Length <= 160 ? entry.Text : entry.Text[..160];
+        var preview = entry.Text.Length <= RelayIdentityPreviewLength ? entry.Text : entry.Text[..RelayIdentityPreviewLength];
         return $"{topic}|{entry.Sector}|{entry.Vault}|{entry.Relay ?? "relay_default"}|{preview}";
     }
 
+    /// <summary>Documents the GetMetadataValue member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="metadata">The metadata value.</param>
+    /// <param name="key">The key value.</param>
+    /// <param name="fallback">The fallback value.</param>
     private static string GetMetadataValue(IReadOnlyDictionary<string, string?> metadata, string key, string fallback = "unknown")
         => metadata.TryGetValue(key, out var value) && !string.IsNullOrEmpty(value) ? value : fallback;
 
-    private static string NormalizePredicate(string predicate)
-        => predicate.ToLowerInvariant().Replace(" ", "_", StringComparison.Ordinal);
-
+    /// <summary>Documents the SanitizeName member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="value">The supplied value.</param>
+    /// <param name="fieldName">The fieldName value.</param>
     private static string SanitizeName(string value, string fieldName)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            throw new ArgumentException($"{fieldName} must be a non-empty string.", fieldName);
-        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
 
         var trimmed = value.Trim();
         if (trimmed.Contains("..", StringComparison.Ordinal) || trimmed.Contains('/') || trimmed.Contains('\\'))
@@ -1004,7 +1177,7 @@ public sealed class ReactiveMemoryService
             throw new ArgumentException($"{fieldName} contains invalid path characters.", fieldName);
         }
 
-        if (trimmed.IndexOf('\0') >= 0)
+        if (trimmed.Contains('\0'))
         {
             throw new ArgumentException($"{fieldName} contains null bytes.", fieldName);
         }
@@ -1012,20 +1185,24 @@ public sealed class ReactiveMemoryService
         return trimmed;
     }
 
+    /// <summary>Documents the SanitizeSimpleToken member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="value">The supplied value.</param>
+    /// <param name="fieldName">The fieldName value.</param>
     private static string SanitizeSimpleToken(string value, string fieldName)
     {
         var sanitized = SanitizeName(value, fieldName).Replace(' ', '_');
         return sanitized;
     }
 
+    /// <summary>Documents the SanitizeContent member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="value">The supplied value.</param>
     private static string SanitizeContent(string value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            throw new ArgumentException("content must be a non-empty string.", nameof(value));
-        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
 
-        if (value.IndexOf('\0') >= 0)
+        if (value.Contains('\0'))
         {
             throw new ArgumentException("content contains null bytes.", nameof(value));
         }
@@ -1033,9 +1210,16 @@ public sealed class ReactiveMemoryService
         return value.Trim();
     }
 
+    /// <summary>Documents the NormalizeForDuplicate member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="value">The supplied value.</param>
     private static string NormalizeForDuplicate(string value)
         => string.Join(' ', TokenizeForComparison(value));
 
+    /// <summary>Documents the DuplicateLexicalScore member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="normalizedContent">The normalizedContent value.</param>
+    /// <param name="normalizedCandidate">The normalizedCandidate value.</param>
     private static double DuplicateLexicalScore(string normalizedContent, string normalizedCandidate)
     {
         if (string.Equals(normalizedContent, normalizedCandidate, StringComparison.Ordinal))
@@ -1047,7 +1231,7 @@ public sealed class ReactiveMemoryService
             normalizedCandidate.Length > 0 &&
             (normalizedCandidate.Contains(normalizedContent, StringComparison.Ordinal) || normalizedContent.Contains(normalizedCandidate, StringComparison.Ordinal)))
         {
-            return 0.99;
+            return ContainedQuerySimilarity;
         }
 
         var contentTerms = normalizedContent.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -1058,12 +1242,15 @@ public sealed class ReactiveMemoryService
         }
 
         var matched = contentTerms.Count(candidateTerms.Contains);
-        return Math.Round((double)matched / contentTerms.Length, 3);
+        return Math.Round((double)matched / contentTerms.Length, SimilarityDecimalPlaces);
     }
 
+    /// <summary>Documents the TokenizeForComparison member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="value">The supplied value.</param>
     private static IEnumerable<string> TokenizeForComparison(string value)
     {
-        var buffer = new List<char>(32);
+        var buffer = new List<char>(TokenBufferCapacity);
         foreach (var character in value)
         {
             if (char.IsLetterOrDigit(character) || character == '_')
@@ -1085,6 +1272,9 @@ public sealed class ReactiveMemoryService
         }
     }
 
+    /// <summary>Documents the ClassifyCategory member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="content">The content value.</param>
     private static MemoryClassificationCategory ClassifyCategory(string content)
     {
         var lower = content.ToLowerInvariant();
@@ -1103,29 +1293,29 @@ public sealed class ReactiveMemoryService
             return MemoryClassificationCategory.ShortTermContext;
         }
 
-        if (IsIrrelevant(lower))
-        {
-            return MemoryClassificationCategory.Irrelevant;
-        }
-
-        return MemoryClassificationCategory.LongTermFact;
+        return IsIrrelevant(lower) ? MemoryClassificationCategory.Irrelevant : MemoryClassificationCategory.LongTermFact;
     }
 
+    /// <summary>Documents the IsIrrelevant member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="lower">The lower value.</param>
     private static bool IsIrrelevant(string lower)
     {
         var compact = lower.Trim().Trim('.', '!', '?');
-        if (compact.Length <= 12 && ContainsAny(compact, "ok", "okay", "thanks", "thank you", "yes", "no", "cool", "great"))
-        {
-            return true;
-        }
-
-        return compact.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 2
+        return compact.Length <= 12 && ContainsAny(compact, "ok", "okay", "thanks", "thank you", "yes", "no", "cool", "great") ? true : compact.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 2
             && ContainsAny(compact, "ok", "thanks", "hello", "hi");
     }
 
+    /// <summary>Documents the ContainsAny member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="value">The supplied value.</param>
+    /// <param name="needles">The needles value.</param>
     private static bool ContainsAny(string value, params string[] needles)
         => needles.Any(needle => value.Contains(needle, StringComparison.Ordinal));
 
+    /// <summary>Documents the GetStorageLocation member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="category">The category value.</param>
     private static (string Sector, string Vault) GetStorageLocation(MemoryClassificationCategory category)
         => category switch
         {
@@ -1137,6 +1327,9 @@ public sealed class ReactiveMemoryService
             _ => ("sector_knowledge", "long-term-facts"),
         };
 
+    /// <summary>Documents the ToCategoryKey member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="category">The category value.</param>
     private static string ToCategoryKey(MemoryClassificationCategory category)
         => category switch
         {
@@ -1148,6 +1341,9 @@ public sealed class ReactiveMemoryService
             _ => category.ToString().ToLowerInvariant(),
         };
 
+    /// <summary>Documents the TryParseCategory member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="categoryKey">The categoryKey value.</param>
     private static MemoryClassificationCategory? TryParseCategory(string categoryKey)
         => categoryKey switch
         {
@@ -1159,39 +1355,51 @@ public sealed class ReactiveMemoryService
             _ => null,
         };
 
-    private static string BuildSummaryPrompt(IReadOnlyList<string> memories, MemoryClassificationCategory? category)
+    /// <summary>Documents the BuildSummaryPrompt member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="memories">The memories value.</param>
+    /// <param name="category">The category value.</param>
+    private static string BuildSummaryPrompt(List<string> memories, MemoryClassificationCategory? category)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("Summarise these local ReactiveMemory entries into a compact long-term memory. Preserve stable facts and preferences. Exclude secrets and transient chatter.");
+        _ = builder.AppendLine("Summarise these local ReactiveMemory entries into a compact long-term memory. Preserve stable facts and preferences. Exclude secrets and transient chatter.");
         if (category is not null)
         {
-            builder.AppendLine($"Category: {ToCategoryKey(category.Value)}");
+            _ = builder.AppendLine($"Category: {ToCategoryKey(category.Value)}");
         }
 
         for (var i = 0; i < memories.Count; i++)
         {
-            builder.AppendLine($"- {memories[i]}");
+            _ = builder.AppendLine($"- {memories[i]}");
         }
 
         return builder.ToString();
     }
 
+    /// <summary>Documents the BuildDeterministicSummary member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="memories">The memories value.</param>
     private static string BuildDeterministicSummary(IReadOnlyList<string> memories)
     {
         var unique = memories
             .Select(static item => item.Trim())
             .Where(static item => item.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(8)
+            .Take(MaximumInferredTopics)
             .ToList();
         return string.Join(" ", unique.Select(static item => item.EndsWith(".", StringComparison.Ordinal) ? item : item + "."));
     }
 
-    private static IReadOnlyList<MemoryPruneRecommendation> BuildPruneRecommendations(IReadOnlyList<DrawerRecord> drawers, double duplicateThreshold, int shortTermRetentionDays)
+    /// <summary>Documents the BuildPruneRecommendations member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="drawers">The drawers value.</param>
+    /// <param name="duplicateThreshold">The duplicateThreshold value.</param>
+    /// <param name="shortTermRetentionDays">The shortTermRetentionDays value.</param>
+    private static List<MemoryPruneRecommendation> BuildPruneRecommendations(List<DrawerRecord> drawers, double duplicateThreshold, int shortTermRetentionDays)
     {
         var recommendations = new List<MemoryPruneRecommendation>();
         var alreadyRecommended = new HashSet<string>(StringComparer.Ordinal);
-        var boundedThreshold = double.IsNaN(duplicateThreshold) ? 0.92 : Math.Clamp(duplicateThreshold, 0, 1);
+        var boundedThreshold = double.IsNaN(duplicateThreshold) ? DefaultPruneDuplicateThreshold : Math.Clamp(duplicateThreshold, 0, 1);
         var boundedRetentionDays = Math.Max(0, shortTermRetentionDays);
 
         for (var i = 0; i < drawers.Count; i++)
@@ -1199,22 +1407,22 @@ public sealed class ReactiveMemoryService
             var drawer = drawers[i];
             if (IsIrrelevantDrawer(drawer))
             {
-                recommendations.Add(new MemoryPruneRecommendation(drawer.Id, MemoryPruneReason.Irrelevant, "delete", null, 0.95, "Stored drawer is explicitly irrelevant or non-memory chatter."));
-                alreadyRecommended.Add(drawer.Id);
+                recommendations.Add(new MemoryPruneRecommendation(drawer.Id, MemoryPruneReason.Irrelevant, "delete", null, IrrelevantPruneConfidence, "Stored drawer is explicitly irrelevant or non-memory chatter."));
+                _ = alreadyRecommended.Add(drawer.Id);
                 continue;
             }
 
             if (IsStaleShortTermContext(drawer, boundedRetentionDays))
             {
-                recommendations.Add(new MemoryPruneRecommendation(drawer.Id, MemoryPruneReason.StaleShortTermContext, "delete", null, 0.9, $"Short-term context is older than the {boundedRetentionDays}-day retention policy."));
-                alreadyRecommended.Add(drawer.Id);
+                recommendations.Add(new MemoryPruneRecommendation(drawer.Id, MemoryPruneReason.StaleShortTermContext, "delete", null, StaleContextPruneConfidence, $"Short-term context is older than the {boundedRetentionDays}-day retention policy."));
+                _ = alreadyRecommended.Add(drawer.Id);
                 continue;
             }
 
             if (TryFindContradiction(drawer, drawers.Take(i), out var contradictedDrawerId))
             {
-                recommendations.Add(new MemoryPruneRecommendation(drawer.Id, MemoryPruneReason.Contradiction, "review", contradictedDrawerId, 0.86, $"Contradicts earlier memory {contradictedDrawerId}; recommend human review before deleting either record."));
-                alreadyRecommended.Add(drawer.Id);
+                recommendations.Add(new MemoryPruneRecommendation(drawer.Id, MemoryPruneReason.Contradiction, "review", contradictedDrawerId, ContradictionPruneConfidence, $"Contradicts earlier memory {contradictedDrawerId}; recommend human review before deleting either record."));
+                _ = alreadyRecommended.Add(drawer.Id);
                 continue;
             }
 
@@ -1237,21 +1445,28 @@ public sealed class ReactiveMemoryService
         return recommendations;
     }
 
+    /// <summary>Documents the IsIrrelevantDrawer member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="drawer">The drawer value.</param>
     private static bool IsIrrelevantDrawer(DrawerRecord drawer)
         => string.Equals(drawer.ClassificationCategory, "irrelevant", StringComparison.OrdinalIgnoreCase)
             || IsIrrelevant(drawer.Text.ToLowerInvariant());
 
+    /// <summary>Documents the IsStaleShortTermContext member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="drawer">The drawer value.</param>
+    /// <param name="retentionDays">The retentionDays value.</param>
     private static bool IsStaleShortTermContext(DrawerRecord drawer, int retentionDays)
     {
-        if (!string.Equals(drawer.ClassificationCategory, "short_term_context", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        return !DateTimeOffset.TryParse(drawer.FiledAt, out var filedAt)
+        return !string.Equals(drawer.ClassificationCategory, "short_term_context", StringComparison.OrdinalIgnoreCase) ? false : !DateTimeOffset.TryParse(drawer.FiledAt, out var filedAt)
             || DateTimeOffset.UtcNow - filedAt.ToUniversalTime() >= TimeSpan.FromDays(retentionDays);
     }
 
+    /// <summary>Documents the TryFindContradiction member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="drawer">The drawer value.</param>
+    /// <param name="candidates">The candidates value.</param>
+    /// <param name="contradictedDrawerId">The contradictedDrawerId value.</param>
     private static bool TryFindContradiction(DrawerRecord drawer, IEnumerable<DrawerRecord> candidates, out string? contradictedDrawerId)
     {
         contradictedDrawerId = null;
@@ -1274,6 +1489,11 @@ public sealed class ReactiveMemoryService
         return false;
     }
 
+    /// <summary>Documents the TryExtractPreferenceIntent member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="text">The text value.</param>
+    /// <param name="subject">The subject value.</param>
+    /// <param name="positive">The positive value.</param>
     private static bool TryExtractPreferenceIntent(string text, out string subject, out bool positive)
     {
         var normalized = NormalizeForDuplicate(text);
@@ -1316,13 +1536,24 @@ public sealed class ReactiveMemoryService
         return false;
     }
 
+    /// <summary>Documents the CreateEntryId member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <param name="content">The content value.</param>
     private static string CreateEntryId(string sector, string vault, string content)
     {
-        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(sector + vault + content[..Math.Min(content.Length, 100)]));
-        var hash = Convert.ToHexStringLower(hashBytes)[..24];
+        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(sector + vault + content[..Math.Min(content.Length, DrawerIdContentLength)]));
+        var hash = Convert.ToHexStringLower(hashBytes)[..StableIdHashLength];
         return $"drawer_{KnowledgeGraphStore.ToEntityId(sector)}_{KnowledgeGraphStore.ToEntityId(vault)}_{hash}";
     }
 
+    /// <summary>Documents the CreateTunnelId member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="sourceSector">The sourceSector value.</param>
+    /// <param name="sourceVault">The sourceVault value.</param>
+    /// <param name="targetSector">The targetSector value.</param>
+    /// <param name="targetVault">The targetVault value.</param>
     private static string CreateTunnelId(string sourceSector, string sourceVault, string targetSector, string targetVault)
     {
         var ordered = new[]
@@ -1332,6 +1563,177 @@ public sealed class ReactiveMemoryService
         };
         Array.Sort(ordered, StringComparer.Ordinal);
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("::", ordered)));
-        return $"tunnel_{Convert.ToHexStringLower(hash)[..24]}";
+        return $"tunnel_{Convert.ToHexStringLower(hash)[..StableIdHashLength]}";
+    }
+
+    /// <summary>Documents the AddDrawerCoreAsync member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <param name="content">The content value.</param>
+    /// <param name="sourceFile">The sourceFile value.</param>
+    /// <param name="addedBy">The addedBy value.</param>
+    /// <param name="classificationCategory">The classificationCategory value.</param>
+    private async Task<AddDrawerResult> AddDrawerCoreAsync(string sector, string vault, string content, string? sourceFile, string? addedBy, MemoryClassificationCategory? classificationCategory)
+    {
+        var timestamp = DateTimeOffset.UtcNow;
+        var normalizedSector = SanitizeName(sector, nameof(sector));
+        var normalizedVault = SanitizeName(vault, nameof(vault));
+        var normalizedContent = SanitizeContent(content);
+        var normalizedSourceFile = string.IsNullOrWhiteSpace(sourceFile) ? "?" : sourceFile!;
+        var normalizedAddedBy = string.IsNullOrWhiteSpace(addedBy) ? "mcp" : addedBy!;
+        var categoryKey = classificationCategory is null ? null : ToCategoryKey(classificationCategory.Value);
+        var entryId = CreateEntryId(normalizedSector, normalizedVault, normalizedContent);
+        var entry = new DrawerRecord(
+            entryId,
+            normalizedContent,
+            normalizedSector,
+            normalizedVault,
+            normalizedSourceFile,
+            normalizedAddedBy,
+            timestamp.ToString("O"),
+            timestamp.ToString("yyyy-MM-dd"),
+            null,
+            categoryKey,
+            classificationCategory is null ? null : "memory",
+            null,
+            0,
+            categoryKey);
+
+        var existing = await _drawerStore.AddAsync(entry);
+        var stored = existing ?? entry;
+        if (existing is not null)
+        {
+            return new AddDrawerResult(true, stored.Id, stored.Sector, stored.Vault, "already_exists");
+        }
+
+        await UpsertDrawerVectorAsync(stored);
+        await UpsertRelayAsync(stored);
+        var result = new AddDrawerResult(true, stored.Id, stored.Sector, stored.Vault);
+        await _writeAheadLog.AppendAsync(
+            "add_drawer",
+            LogPayload.Create(
+            ("sector", normalizedSector),
+            ("vault", normalizedVault),
+            ("content", normalizedContent),
+            ("sourceFile", sourceFile),
+            ("addedBy", addedBy),
+            ("classificationCategory", categoryKey)),
+            result);
+        return result;
+    }
+
+    /// <summary>Lists drawers with optional filters and paging.</summary>
+    /// <param name="sector">The sector value.</param>
+    /// <param name="vault">The vault value.</param>
+    /// <param name="limit">The limit value.</param>
+    /// <param name="offset">The offset value.</param>
+    /// <returns>The operation result.</returns>
+    private async Task<DrawerListResult> ListDrawersCoreAsync(string? sector, string? vault, int limit, int offset)
+    {
+        var entries = await _drawerStore.GetAllAsync();
+        var boundedLimit = Math.Clamp(limit, 1, MaximumDrawerListLimit);
+        var boundedOffset = Math.Max(0, offset);
+        var filtered = entries
+            .Where(drawer => sector is null || string.Equals(drawer.Sector, sector, StringComparison.Ordinal))
+            .Where(drawer => vault is null || string.Equals(drawer.Vault, vault, StringComparison.Ordinal))
+            .OrderByDescending(drawer => drawer.FiledAt, StringComparer.Ordinal)
+            .ToList();
+        var page = filtered.Skip(boundedOffset).Take(boundedLimit).ToList();
+        return new DrawerListResult(page, filtered.Count, boundedLimit, boundedOffset, sector, vault);
+    }
+
+    /// <summary>Documents the TryRunAutomaticPruneAsync member.</summary>
+    /// <returns>The operation result.</returns>
+    private async Task<(MemoryPruneResult? Result, string AuditEvent)> TryRunAutomaticPruneAsync()
+    {
+        if (Interlocked.CompareExchange(ref _automaticPruneRunning, 1, 0) != 0)
+        {
+            return (null, "prune_skipped:already_running");
+        }
+
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (now < _nextAutomaticPruneUtc)
+            {
+                return (null, "prune_skipped:cadence");
+            }
+
+            var result = await PruneMemoryAsync(apply: false);
+            _nextAutomaticPruneUtc = now.AddMinutes(Math.Max(0, Options.AutoManagePruneIntervalMinutes));
+            return (result, "prune_checked:dry_run");
+        }
+        finally
+        {
+            Volatile.Write(ref _automaticPruneRunning, 0);
+        }
+    }
+
+    /// <summary>Inspects legacy vector indexes and optionally reconciles them with the drawer source of truth.</summary>
+    /// <param name="apply">Whether detected vector upgrades should be persisted. The default is a non-destructive dry run.</param>
+    /// <returns>A compatibility and migration summary.</returns>
+    private Task<StorageMigrationResult> MigrateLegacyStorageCoreAsync(bool apply)
+    {
+        if (_vectorStore is not IVectorStoreMigration drawerMigration || _relayVectorStore is not IVectorStoreMigration relayMigration)
+        {
+            var empty = new VectorStoreMigrationSummary(0, 0, 0, 0, 0, 0, 0);
+            return Task.FromResult(new StorageMigrationResult(
+                !apply,
+                0,
+                empty,
+                empty,
+                "Drawer JSON and the SQLite knowledge graph remain unchanged.",
+                false,
+                "The configured vector stores do not expose the optional migration capability."));
+        }
+
+        var migrator = new LegacyStorageMigrator(_drawerStore, drawerMigration, relayMigration);
+        return migrator.MigrateAsync(apply);
+    }
+
+    /// <summary>Documents the UpsertDrawerVectorAsync member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="entry">The entry value.</param>
+    private async Task UpsertDrawerVectorAsync(DrawerRecord entry)
+    {
+        await _vectorStore.UpsertAsync(new VectorRecord(
+            entry.Id,
+            entry.Text,
+            new Dictionary<string, string?>
+            {
+                ["sector"] = entry.Sector,
+                ["vault"] = entry.Vault,
+                ["source_file"] = entry.SourceFile,
+                ["added_by"] = entry.AddedBy,
+                ["date"] = entry.Date,
+                ["relay"] = entry.Relay,
+                ["topic"] = entry.Topic,
+                ["type"] = entry.Type,
+                ["agent"] = entry.Agent,
+                ["classification_category"] = entry.ClassificationCategory,
+            }));
+    }
+
+    /// <summary>Documents the UpsertRelayAsync member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="entry">The entry value.</param>
+    private async Task UpsertRelayAsync(DrawerRecord entry)
+    {
+        var relayContent = BuildRelayContent(entry);
+        await _relayVectorStore.UpsertAsync(new VectorRecord(
+            entry.Id,
+            relayContent,
+            new Dictionary<string, string?>
+            {
+                ["sector"] = entry.Sector,
+                ["vault"] = entry.Vault,
+                ["source_file"] = entry.SourceFile,
+                ["relay"] = entry.Relay,
+                ["topic"] = entry.Topic,
+                ["type"] = entry.Type,
+                ["agent"] = entry.Agent,
+                ["classification_category"] = entry.ClassificationCategory,
+            }));
     }
 }

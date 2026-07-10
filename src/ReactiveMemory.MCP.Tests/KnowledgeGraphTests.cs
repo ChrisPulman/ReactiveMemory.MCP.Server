@@ -1,10 +1,15 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using ReactiveMemory.MCP.Core.Tools;
-using ReactiveMemory.MCP.Core.Wiring;
 
 namespace ReactiveMemory.MCP.Tests;
 
+/// <summary>Provides KnowledgeGraphTests behavior.</summary>
 public class KnowledgeGraphTests
 {
+    /// <summary>Executes the Knowledge_Graph_Can_Add_Query_Invalidate_And_Readd_Facts operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Knowledge_Graph_Can_Add_Query_Invalidate_And_Readd_Facts()
     {
@@ -23,6 +28,8 @@ public class KnowledgeGraphTests
         await Assert.That(readd.TripleId).IsNotEqualTo(added.TripleId);
     }
 
+    /// <summary>Executes the Knowledge_Graph_Query_Defaults_To_Current_Facts_And_Reports_Missing_Invalidations operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Knowledge_Graph_Query_Defaults_To_Current_Facts_And_Reports_Missing_Invalidations()
     {
@@ -43,6 +50,8 @@ public class KnowledgeGraphTests
         await Assert.That(missing.Error).IsNotNull();
     }
 
+    /// <summary>Executes the Knowledge_Graph_Add_Defaults_Valid_From_To_Today operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Knowledge_Graph_Add_Defaults_Valid_From_To_Today()
     {
@@ -54,5 +63,4 @@ public class KnowledgeGraphTests
         await Assert.That(timeline.Timeline.Count).IsEqualTo(1);
         await Assert.That(timeline.Timeline[0].ValidFrom).IsEqualTo(DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd"));
     }
-
 }

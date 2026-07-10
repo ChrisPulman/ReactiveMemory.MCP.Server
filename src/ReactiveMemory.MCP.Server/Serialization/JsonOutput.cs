@@ -1,20 +1,20 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System.Text.Json;
 
 namespace ReactiveMemory.MCP.Server.Serialization;
 
-/// <summary>
-/// Shared server-side JSON serialization.
-/// </summary>
+/// <summary>Shared server-side JSON serialization.</summary>
 public static class JsonOutput
 {
+    /// <summary>Shared JSON serialization options.</summary>
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
     };
 
-    /// <summary>
-    /// Serializes the specified value to a JSON string.
-    /// </summary>
+    /// <summary>Serializes the specified value to a JSON string.</summary>
     /// <remarks>The serialization uses predefined options for formatting and behavior. If the value contains
     /// circular references or unsupported types, serialization may fail.</remarks>
     /// <typeparam name="T">The type of the value to serialize.</typeparam>

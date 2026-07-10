@@ -1,37 +1,30 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using ReactiveMemory.MCP.Core.Models;
 
 namespace ReactiveMemory.MCP.Core.Abstractions;
 
-/// <summary>
-/// Vector-search-compatible storage abstraction for ReactiveMemory entries.
-/// </summary>
+/// <summary>Vector-search-compatible storage abstraction for ReactiveMemory entries.</summary>
 public interface IVectorStore
 {
-    /// <summary>
-    /// Asynchronously performs initialization logic required before the component can be used.
-    /// </summary>
+    /// <summary>Asynchronously performs initialization logic required before the component can be used.</summary>
     /// <returns>A task that represents the asynchronous initialization operation.</returns>
     Task InitializeAsync();
 
-    /// <summary>
-    /// Asynchronously inserts a new vector record or updates an existing one in the data store.
-    /// </summary>
+    /// <summary>Asynchronously inserts a new vector record or updates an existing one in the data store.</summary>
     /// <param name="record">The vector record to insert or update. Cannot be null.</param>
     /// <returns>A task that represents the asynchronous operation. The task result contains an object describing the outcome of
     /// the upsert operation.</returns>
     Task<UpsertVectorRecordResult> UpsertAsync(VectorRecord record);
 
-    /// <summary>
-    /// Asynchronously deletes the entity with the specified identifier.
-    /// </summary>
+    /// <summary>Asynchronously deletes the entity with the specified identifier.</summary>
     /// <param name="id">The unique identifier of the entity to delete. Cannot be null or empty.</param>
     /// <returns>A task that represents the asynchronous delete operation. The task result is <see langword="true"/> if the
     /// entity was successfully deleted; otherwise, <see langword="false"/>.</returns>
     Task<bool> DeleteAsync(string id);
 
-    /// <summary>
-    /// Asynchronously retrieves all vector records.
-    /// </summary>
+    /// <summary>Asynchronously retrieves all vector records.</summary>
     /// <returns>A task that represents the asynchronous operation. The task result contains a read-only list of all <see
     /// cref="VectorRecord"/> instances. The list will be empty if no records are available.</returns>
     Task<IReadOnlyList<VectorRecord>> GetAllAsync();

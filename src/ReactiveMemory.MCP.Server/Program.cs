@@ -1,29 +1,27 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
-using ModelContextProtocol.Server;
 using ReactiveMemory.MCP.Core.Wiring;
 using ReactiveMemory.MCP.Server.Tools;
 
 namespace ReactiveMemory.MCP.Server;
 
-/// <summary>
-/// Entry point for the ReactiveMemory MCP server.
-/// </summary>
+/// <summary>Entry point for the ReactiveMemory MCP server.</summary>
 public static class Program
 {
-    /// <summary>
-    /// Create the host instance.
-    /// </summary>
+    /// <summary>Create the host instance.</summary>
     /// <param name="args">Command line arguments.</param>
     /// <returns>The configured host.</returns>
     public static IHost CreateHost(string[] args)
     {
         var builder = Host.CreateApplicationBuilder(args);
-        builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
-        builder.Services.AddReactiveMemory();
-        builder.Services.AddMcpServer(options => options.ServerInfo = new Implementation
+        _ = builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
+        _ = builder.Services.AddReactiveMemory();
+        _ = builder.Services.AddMcpServer(options => options.ServerInfo = new Implementation
         {
             Name = "reactivememory-mcp-server",
             Version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "1.1.1",
@@ -35,9 +33,7 @@ public static class Program
         return builder.Build();
     }
 
-    /// <summary>
-    /// Main process entry point.
-    /// </summary>
+    /// <summary>Main process entry point.</summary>
     /// <param name="args">Command line arguments.</param>
     /// <returns>An async completion task.</returns>
     public static async Task Main(string[] args) => await CreateHost(args).RunAsync();

@@ -1,15 +1,14 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System.Text.Json;
 
 namespace ReactiveMemory.MCP.Core.Mining;
 
-/// <summary>
-/// Normalize multiple conversation export formats into a common transcript style.
-/// </summary>
+/// <summary>Normalize multiple conversation export formats into a common transcript style.</summary>
 public static class ConversationNormalizer
 {
-    /// <summary>
-    /// Normalizes the specified string by trimming whitespace and formatting JSON content if applicable.
-    /// </summary>
+    /// <summary>Normalizes the specified string by trimming whitespace and formatting JSON content if applicable.</summary>
     /// <remarks>If the input contains three or more lines starting with the '>' character, the method returns
     /// the trimmed input unchanged. If the input appears to be JSON and can be parsed, it is normalized; otherwise, the
     /// trimmed input is returned.</remarks>
@@ -41,14 +40,19 @@ public static class ConversationNormalizer
         return trimmed;
     }
 
+    /// <summary>Documents the NormalizeJson member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="root">The root value.</param>
     private static string NormalizeJson(JsonElement root)
     {
+        const string RolePropertyName = "role";
+        const string ContentPropertyName = "content";
         if (root.ValueKind == JsonValueKind.Array)
         {
             var lines = new List<string>();
             foreach (var item in root.EnumerateArray())
             {
-                if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("role", out var role) && item.TryGetProperty("content", out var content))
+                if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty(RolePropertyName, out var role) && item.TryGetProperty(ContentPropertyName, out var content))
                 {
                     var text = content.ValueKind == JsonValueKind.String ? content.GetString() ?? string.Empty : content.ToString();
                     lines.Add(role.GetString() == "user" ? $"> {text}" : text);

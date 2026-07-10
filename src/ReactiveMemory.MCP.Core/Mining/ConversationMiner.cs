@@ -1,22 +1,22 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using ReactiveMemory.MCP.Core.Services;
 
 namespace ReactiveMemory.MCP.Core.Mining;
 
-/// <summary>
-/// Mine conversation transcripts into ReactiveMemory entries.
-/// </summary>
+/// <summary>Mine conversation transcripts into ReactiveMemory entries.</summary>
 public sealed class ConversationMiner
 {
-    private readonly ReactiveMemoryService service;
+    /// <summary>Documents the _service member.</summary>
+    private readonly ReactiveMemoryService _service;
 
-    /// <summary>
-    /// Initializes a new instance of the ConversationMiner class using the specified reactive memory service.
-    /// </summary>
+    /// <summary>Initializes a new instance of the ConversationMiner class using the specified reactive memory service.</summary>
     /// <param name="service">The ReactiveMemoryService instance to use for conversation mining operations. Cannot be null.</param>
     public ConversationMiner(ReactiveMemoryService service)
     {
         ArgumentNullException.ThrowIfNull(service);
-        this.service = service;
+        _service = service;
     }
 
     /// <summary>
@@ -39,7 +39,7 @@ public sealed class ConversationMiner
         foreach (var chunk in chunks)
         {
             var vault = ConversationVaultClassifier.Classify(chunk);
-            await this.service.AddDrawerAsync(sector, vault, chunk, sourceFile, "conversation_miner");
+            await _service.AddDrawerAsync(sector, vault, chunk, sourceFile, "conversation_miner");
         }
 
         return chunks.Count;

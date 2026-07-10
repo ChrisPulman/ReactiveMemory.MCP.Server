@@ -1,10 +1,14 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 namespace ReactiveMemory.MCP.Core.Mining;
 
-/// <summary>
-/// Routes files and text into configured vaults.
-/// </summary>
+/// <summary>Routes files and text into configured vaults.</summary>
 public static class VaultRouter
 {
+    /// <summary>Maximum number of content characters inspected while routing.</summary>
+    private const int MaximumContentSampleLength = 2000;
+
     /// <summary>
     /// Determines the most appropriate vault name for the specified file based on its path, content, and a list of
     /// vault definitions.
@@ -33,18 +37,18 @@ public static class VaultRouter
             }
         }
 
-        var sample = content.Length > 2000 ? content[..2000] : content;
+        var sample = content.Length > MaximumContentSampleLength ? content[..MaximumContentSampleLength] : content;
         var scored = vaults
-            .Select(vault => new
-            {
-                vault.Name,
-                Score = vault.Keywords.Sum(keyword => CountOccurrences(sample, keyword)),
-            })
+            .Select(vault => (vault.Name, Score: vault.Keywords.Sum(keyword => CountOccurrences(sample, keyword))))
             .OrderByDescending(static item => item.Score)
             .FirstOrDefault();
-        return scored is not null && scored.Score > 0 ? scored.Name : "general";
+        return scored.Score > 0 ? scored.Name : "general";
     }
 
+    /// <summary>Documents the CountOccurrences member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="text">The text value.</param>
+    /// <param name="keyword">The keyword value.</param>
     private static int CountOccurrences(string text, string keyword)
     {
         var count = 0;

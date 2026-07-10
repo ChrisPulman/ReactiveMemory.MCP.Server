@@ -1,12 +1,25 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using ReactiveMemory.MCP.Core.Models;
 
 namespace ReactiveMemory.MCP.Core.Services;
 
-/// <summary>
-/// Builds derived vault graphs from drawer metadata.
-/// </summary>
+/// <summary>Builds derived vault graphs from drawer metadata.</summary>
 public static class CoreGraphService
 {
+    /// <summary>Maximum number of entries returned by graph traversal and tunnel queries.</summary>
+    private const int MaximumGraphResults = 50;
+
+    /// <summary>Number of vertices in an edge.</summary>
+    private const int VerticesPerEdge = 2;
+
+    /// <summary>Weight assigned to partial fuzzy matches.</summary>
+    private const double PartialMatchWeight = 0.5;
+
+    /// <summary>Maximum number of fuzzy-match suggestions returned.</summary>
+    private const int MaximumFuzzyMatches = 5;
+
     /// <summary>
     /// Traverses the vault network starting from the specified vault, returning reachable vaults up to the specified
     /// maximum number of hops.
@@ -30,7 +43,7 @@ public static class CoreGraphService
             return new TraverseResult(startVault, [], $"Vault '{startVault}' not found", FuzzyMatch(startVault, nodes.Keys));
         }
 
-        var results = new List<TraverseEntry>(Math.Min(nodes.Count, 50))
+        var results = new List<TraverseEntry>(Math.Min(nodes.Count, MaximumGraphResults))
         {
             CreateTraverseEntry(startVault, start, 0, null),
         };
@@ -72,9 +85,7 @@ public static class CoreGraphService
         return new TraverseResult(startVault, results.OrderBy(entry => entry.Hop).ThenByDescending(entry => entry.Count).ToList());
     }
 
-    /// <summary>
-    /// Finds tunnel entries that connect sectors based on the provided drawer records and optional sector filters.
-    /// </summary>
+    /// <summary>Finds tunnel entries that connect sectors based on the provided drawer records and optional sector filters.</summary>
     /// <remarks>If both sectorA and sectorB are specified, only tunnels that include both sectors are
     /// returned. If neither is specified, all tunnels are considered. The result is limited to a maximum of 50 entries,
     /// sorted by descending usage count.</remarks>
@@ -87,7 +98,7 @@ public static class CoreGraphService
     {
         ArgumentNullException.ThrowIfNull(drawers);
         var (nodes, _) = Build(drawers);
-        var tunnels = new List<TunnelEntry>(Math.Min(nodes.Count, 50));
+        var tunnels = new List<TunnelEntry>(Math.Min(nodes.Count, MaximumGraphResults));
 
         foreach (var pair in nodes)
         {
@@ -111,18 +122,15 @@ public static class CoreGraphService
         }
 
         tunnels.Sort(static (left, right) => right.Count.CompareTo(left.Count));
-        if (tunnels.Count > 50)
+        if (tunnels.Count > MaximumGraphResults)
         {
-            tunnels.RemoveRange(50, tunnels.Count - 50);
+            tunnels.RemoveRange(MaximumGraphResults, tunnels.Count - MaximumGraphResults);
         }
 
         return new TunnelsResult(tunnels);
     }
 
-    /// <summary>
-    /// Calculates statistical information about the vault graph represented by the specified collection of drawer
-    /// records.
-    /// </summary>
+    /// <summary>Calculates statistical information about the vault graph represented by the specified collection of drawer records.</summary>
     /// <remarks>A tunnel vault is defined as a vault associated with two or more sectors. The method computes
     /// the number of such vaults, as well as the total number of edges formed by sector associations.</remarks>
     /// <param name="drawers">The collection of drawer records to analyze. Cannot be null.</param>
@@ -144,7 +152,7 @@ public static class CoreGraphService
 
             foreach (var sector in node.Sectors)
             {
-                vaultsPerSector.TryGetValue(sector, out var count);
+                _ = vaultsPerSector.TryGetValue(sector, out var count);
                 vaultsPerSector[sector] = count + 1;
             }
         }
@@ -153,16 +161,28 @@ public static class CoreGraphService
         foreach (var node in nodes.Values)
         {
             var sectorCount = node.Sectors.Count;
-            if (sectorCount >= 2)
+            if (sectorCount >= VerticesPerEdge)
             {
-                totalEdges += (sectorCount * (sectorCount - 1)) / 2;
+                totalEdges += sectorCount * (sectorCount - 1) / VerticesPerEdge;
             }
         }
 
         return new GraphStatsResult(nodes.Count, tunnelVaults, totalEdges, vaultsPerSector);
     }
 
+    /// <summary>Documents the Build member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="drawers">The drawers value.</param>
     private static (Dictionary<string, NodeState> Nodes, Dictionary<string, List<NeighborLink>> Edges) Build(IReadOnlyList<DrawerRecord> drawers)
+    {
+        var nodes = BuildNodes(drawers);
+        return (nodes, BuildEdges(nodes));
+    }
+
+    /// <summary>Builds graph nodes from drawers.</summary>
+    /// <param name="drawers">The source drawers.</param>
+    /// <returns>The graph nodes.</returns>
+    private static Dictionary<string, NodeState> BuildNodes(IReadOnlyList<DrawerRecord> drawers)
     {
         var nodes = new Dictionary<string, NodeState>(StringComparer.Ordinal);
         foreach (var drawer in drawers)
@@ -174,14 +194,14 @@ public static class CoreGraphService
 
             if (!nodes.TryGetValue(drawer.Vault, out var node))
             {
-                node = new NodeState();
+                node = new();
                 nodes.Add(drawer.Vault, node);
             }
 
-            node.Sectors.Add(drawer.Sector);
+            _ = node.Sectors.Add(drawer.Sector);
             if (!string.IsNullOrWhiteSpace(drawer.Relay))
             {
-                node.Relays.Add(drawer.Relay);
+                _ = node.Relays.Add(drawer.Relay);
             }
 
             if (!string.IsNullOrWhiteSpace(drawer.Date))
@@ -192,6 +212,14 @@ public static class CoreGraphService
             node.Count++;
         }
 
+        return nodes;
+    }
+
+    /// <summary>Builds graph edges from nodes that share sectors.</summary>
+    /// <param name="nodes">The graph nodes.</param>
+    /// <returns>The adjacency lists.</returns>
+    private static Dictionary<string, List<NeighborLink>> BuildEdges(Dictionary<string, NodeState> nodes)
+    {
         var edges = new Dictionary<string, List<NeighborLink>>(nodes.Count, StringComparer.Ordinal);
         foreach (var pair in nodes)
         {
@@ -218,9 +246,13 @@ public static class CoreGraphService
             }
         }
 
-        return (nodes, edges);
+        return edges;
     }
 
+    /// <summary>Documents the GetSharedSectors member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="left">The left value.</param>
+    /// <param name="right">The right value.</param>
     private static List<string> GetSharedSectors(HashSet<string> left, HashSet<string> right)
     {
         var source = left.Count <= right.Count ? left : right;
@@ -238,10 +270,20 @@ public static class CoreGraphService
         return shared;
     }
 
+    /// <summary>Documents the CreateTraverseEntry member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="vault">The vault value.</param>
+    /// <param name="node">The node value.</param>
+    /// <param name="hop">The hop value.</param>
+    /// <param name="connectedVia">The connectedVia value.</param>
     private static TraverseEntry CreateTraverseEntry(string vault, NodeState node, int hop, IReadOnlyList<string>? connectedVia)
         => new(vault, node.GetOrderedSectors(), node.GetOrderedRelays(), node.Count, hop, connectedVia);
 
-    private static IReadOnlyList<string> FuzzyMatch(string query, IEnumerable<string> vaults)
+    /// <summary>Documents the FuzzyMatch member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="query">The query value.</param>
+    /// <param name="vaults">The vaults value.</param>
+    private static List<string> FuzzyMatch(string query, IEnumerable<string> vaults)
     {
         var normalized = query.ToLowerInvariant();
         var parts = normalized.Split('-', StringSplitOptions.RemoveEmptyEntries);
@@ -250,7 +292,9 @@ public static class CoreGraphService
         foreach (var vault in vaults)
         {
             var lowered = vault.ToLowerInvariant();
-            var score = lowered.Contains(normalized, StringComparison.Ordinal) ? 1.0 : HasAnyPart(lowered, parts) ? 0.5 : 0.0;
+            var score = lowered.Contains(normalized, StringComparison.Ordinal)
+                ? 1.0
+                : Convert.ToDouble(HasAnyPart(lowered, parts), System.Globalization.CultureInfo.InvariantCulture) * PartialMatchWeight;
             if (score > 0)
             {
                 matches.Add((vault, score));
@@ -263,9 +307,9 @@ public static class CoreGraphService
             return scoreComparison != 0 ? scoreComparison : StringComparer.Ordinal.Compare(left.Vault, right.Vault);
         });
 
-        if (matches.Count > 5)
+        if (matches.Count > MaximumFuzzyMatches)
         {
-            matches.RemoveRange(5, matches.Count - 5);
+            matches.RemoveRange(MaximumFuzzyMatches, matches.Count - MaximumFuzzyMatches);
         }
 
         var results = new List<string>(matches.Count);
@@ -277,6 +321,10 @@ public static class CoreGraphService
         return results;
     }
 
+    /// <summary>Documents the HasAnyPart member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="vault">The vault value.</param>
+    /// <param name="parts">The parts value.</param>
     private static bool HasAnyPart(string vault, string[] parts)
     {
         for (var i = 0; i < parts.Length; i++)
@@ -290,45 +338,67 @@ public static class CoreGraphService
         return false;
     }
 
+    /// <summary>Documents the NodeState member.</summary>
     private sealed class NodeState
     {
-        private string[]? orderedSectors;
-        private string[]? orderedRelays;
-        private readonly string[] recentDates = new string[5];
-        private int recentDateCount;
+        /// <summary>Documents the _recentDates member.</summary>
+        private readonly string[] _recentDates = new string[5];
 
+        /// <summary>Documents the _orderedSectors member.</summary>
+        private string[]? _orderedSectors;
+
+        /// <summary>Documents the _orderedRelays member.</summary>
+        private string[]? _orderedRelays;
+
+        /// <summary>Documents the _recentDateCount member.</summary>
+        private int _recentDateCount;
+
+        /// <summary>Gets documents the Sectors member.</summary>
         public HashSet<string> Sectors { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>Gets documents the Relays member.</summary>
         public HashSet<string> Relays { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>Gets or sets documents the Count member.</summary>
         public int Count { get; set; }
 
+        /// <summary>Documents the AddDate member.</summary>
+        /// <param name="value">The supplied value.</param>
         public void AddDate(string value)
         {
-            if (this.recentDateCount < this.recentDates.Length)
+            if (_recentDateCount < _recentDates.Length)
             {
-                this.recentDates[this.recentDateCount++] = value;
+                _recentDates[_recentDateCount++] = value;
                 return;
             }
 
-            Array.Copy(this.recentDates, 1, this.recentDates, 0, this.recentDates.Length - 1);
-            this.recentDates[^1] = value;
+            Array.Copy(_recentDates, 1, _recentDates, 0, _recentDates.Length - 1);
+            _recentDates[^1] = value;
         }
 
-        public string GetRecentDate() => this.recentDateCount == 0 ? string.Empty : this.recentDates[this.recentDateCount - 1];
+        /// <summary>Documents the GetRecentDate member.</summary>
+        /// <returns>The operation result.</returns>
+        public string GetRecentDate() => _recentDateCount == 0 ? string.Empty : _recentDates[_recentDateCount - 1];
 
-        public IReadOnlyList<string> GetOrderedSectors()
+        /// <summary>Documents the GetOrderedSectors member.</summary>
+        /// <returns>The operation result.</returns>
+        public string[] GetOrderedSectors()
         {
-            this.orderedSectors ??= this.Sectors.Order(StringComparer.Ordinal).ToArray();
-            return this.orderedSectors;
+            _orderedSectors ??= Sectors.Order(StringComparer.Ordinal).ToArray();
+            return _orderedSectors;
         }
 
-        public IReadOnlyList<string> GetOrderedRelays()
+        /// <summary>Documents the GetOrderedRelays member.</summary>
+        /// <returns>The operation result.</returns>
+        public string[] GetOrderedRelays()
         {
-            this.orderedRelays ??= this.Relays.Order(StringComparer.Ordinal).ToArray();
-            return this.orderedRelays;
+            _orderedRelays ??= Relays.Order(StringComparer.Ordinal).ToArray();
+            return _orderedRelays;
         }
     }
 
+    /// <summary>Documents the NeighborLink member.</summary>
+    /// <param name="Vault">The Vault value.</param>
+    /// <param name="SharedSectors">The SharedSectors value.</param>
     private sealed record NeighborLink(string Vault, IReadOnlyList<string> SharedSectors);
 }

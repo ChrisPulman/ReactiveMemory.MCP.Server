@@ -1,10 +1,18 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using ReactiveMemory.MCP.Core.Tools;
-using ReactiveMemory.MCP.Core.Wiring;
 
 namespace ReactiveMemory.MCP.Tests;
 
+/// <summary>Provides DrawerCrudAndHooksTests behavior.</summary>
 public class DrawerCrudAndHooksTests
 {
+    /// <summary>Maximum number of drawers requested by the CRUD listing test.</summary>
+    private const int DrawerListLimit = 10;
+
+    /// <summary>Executes the Drawer_Crud_And_Hook_Settings_Work_End_To_End operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Drawer_Crud_And_Hook_Settings_Work_End_To_End()
     {
@@ -12,7 +20,7 @@ public class DrawerCrudAndHooksTests
         var added = await ReactiveMemoryTools.AddDrawerAsync(harness.Service, "sector_alpha", "vault_one", "Alpha content", "alpha.md", "tester");
 
         var fetched = await ReactiveMemoryTools.GetDrawerAsync(harness.Service, added.DrawerId);
-        var listed = await ReactiveMemoryTools.ListDrawersAsync(harness.Service, "sector_alpha", "vault_one", 10, 0);
+        var listed = await ReactiveMemoryTools.ListDrawersAsync(harness.Service, "sector_alpha", "vault_one", DrawerListLimit, 0);
         var updated = await ReactiveMemoryTools.UpdateDrawerAsync(harness.Service, added.DrawerId, "Updated alpha content", "sector_beta", "vault_two");
         var settings = await ReactiveMemoryTools.HookSettingsAsync(harness.Service, silentSave: false, desktopToast: true);
         var reconnect = await ReactiveMemoryTools.ReconnectAsync(harness.Service);

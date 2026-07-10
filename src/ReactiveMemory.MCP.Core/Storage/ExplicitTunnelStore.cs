@@ -1,85 +1,87 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System.Text.Json;
 using ReactiveMemory.MCP.Core.Configuration;
 using ReactiveMemory.MCP.Core.Models;
 
 namespace ReactiveMemory.MCP.Core.Storage;
 
-/// <summary>
-/// Persistent explicit tunnel storage.
-/// </summary>
+/// <summary>Persistent explicit tunnel storage.</summary>
 public sealed class ExplicitTunnelStore : IDisposable
 {
+    /// <summary>Documents the JsonOptions member.</summary>
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
-    private readonly string filePath;
-    private readonly SemaphoreSlim gate = new(1, 1);
-    private bool disposed;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="ExplicitTunnelStore"/> class.
-    /// </summary>
+    /// <summary>Documents the _filePath member.</summary>
+    private readonly string _filePath;
+
+    /// <summary>Documents the _gate member.</summary>
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
+    /// <summary>Documents the _disposed member.</summary>
+    private bool _disposed;
+
+    /// <summary>Initializes a new instance of the <see cref="ExplicitTunnelStore"/> class.</summary>
     /// <param name="options">ReactiveMemory options.</param>
     public ExplicitTunnelStore(ReactiveMemoryOptions options)
         : this(options?.ExplicitTunnelsPath ?? throw new ArgumentNullException(nameof(options)))
     {
     }
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="ExplicitTunnelStore"/> class with an explicit file path.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="ExplicitTunnelStore"/> class with an explicit file path.</summary>
     /// <param name="filePath">Backing file path.</param>
     public ExplicitTunnelStore(string filePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
-        this.filePath = filePath;
+        _ = Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        _filePath = filePath;
     }
 
     /// <inheritdoc/>
     public void Dispose()
     {
-        if (disposed)
+        if (_disposed)
         {
             return;
         }
 
-        gate.Dispose();
-        disposed = true;
+        _gate.Dispose();
+        _disposed = true;
     }
 
-    /// <summary>
-    /// Ensures the tunnel file exists.
-    /// </summary>
+    /// <summary>Ensures the tunnel file exists.</summary>
+    /// <returns>The operation result.</returns>
     public async Task InitializeAsync()
     {
-        if (!File.Exists(filePath))
+        if (!File.Exists(_filePath))
         {
-            await File.WriteAllTextAsync(filePath, "[]");
+            await File.WriteAllTextAsync(_filePath, "[]");
         }
     }
 
-    /// <summary>
-    /// Gets all stored tunnels.
-    /// </summary>
+    /// <summary>Gets all stored tunnels.</summary>
+    /// <returns>The operation result.</returns>
     public async Task<IReadOnlyList<ExplicitTunnelRecord>> GetAllAsync()
     {
-        await gate.WaitAsync();
+        await _gate.WaitAsync();
         try
         {
             return await ReadUnsafeAsync();
         }
         finally
         {
-            gate.Release();
+            _ = _gate.Release();
         }
     }
 
-    /// <summary>
-    /// Adds or replaces a tunnel with the same identifier.
-    /// </summary>
+    /// <summary>Adds or replaces a tunnel with the same identifier.</summary>
+    /// <param name="tunnel">The tunnel value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<ExplicitTunnelRecord?> UpsertAsync(ExplicitTunnelRecord tunnel)
     {
         ArgumentNullException.ThrowIfNull(tunnel);
-        await gate.WaitAsync();
+        await _gate.WaitAsync();
         try
         {
             var items = await ReadUnsafeAsync();
@@ -102,17 +104,17 @@ public sealed class ExplicitTunnelStore : IDisposable
         }
         finally
         {
-            gate.Release();
+            _ = _gate.Release();
         }
     }
 
-    /// <summary>
-    /// Deletes a tunnel by identifier.
-    /// </summary>
+    /// <summary>Deletes a tunnel by identifier.</summary>
+    /// <param name="tunnelId">The tunnelId value.</param>
+    /// <returns>The operation result.</returns>
     public async Task<bool> DeleteAsync(string tunnelId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(tunnelId);
-        await gate.WaitAsync();
+        await _gate.WaitAsync();
         try
         {
             var items = await ReadUnsafeAsync();
@@ -126,25 +128,30 @@ public sealed class ExplicitTunnelStore : IDisposable
         }
         finally
         {
-            gate.Release();
+            _ = _gate.Release();
         }
     }
 
+    /// <summary>Documents the ReadUnsafeAsync member.</summary>
+    /// <returns>The operation result.</returns>
     private async Task<List<ExplicitTunnelRecord>> ReadUnsafeAsync()
     {
-        if (!File.Exists(filePath))
+        if (!File.Exists(_filePath))
         {
             return [];
         }
 
-        var content = await File.ReadAllTextAsync(filePath);
+        var content = await File.ReadAllTextAsync(_filePath);
         return JsonSerializer.Deserialize<List<ExplicitTunnelRecord>>(content, JsonOptions) ?? [];
     }
 
+    /// <summary>Documents the WriteUnsafeAsync member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="tunnels">The tunnels value.</param>
     private async Task WriteUnsafeAsync(List<ExplicitTunnelRecord> tunnels)
     {
         ArgumentNullException.ThrowIfNull(tunnels);
         var content = JsonSerializer.Serialize(tunnels, JsonOptions);
-        await File.WriteAllTextAsync(filePath, content);
+        await File.WriteAllTextAsync(_filePath, content);
     }
 }

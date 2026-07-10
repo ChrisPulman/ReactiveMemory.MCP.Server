@@ -1,10 +1,18 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using ReactiveMemory.MCP.Core.Tools;
-using ReactiveMemory.MCP.Core.Wiring;
 
 namespace ReactiveMemory.MCP.Tests;
 
+/// <summary>Provides GraphAndDiaryTests behavior.</summary>
 public class GraphAndDiaryTests
 {
+    /// <summary>Expected pair count and graph traversal depth used by these fixtures.</summary>
+    private const int ExpectedPairCount = 2;
+
+    /// <summary>Executes the Traverse_And_Tunnel_Stats_Reflect_Shared_Vaults_Across_Sectors operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Traverse_And_Tunnel_Stats_Reflect_Shared_Vaults_Across_Sectors()
     {
@@ -13,7 +21,7 @@ public class GraphAndDiaryTests
         await ReactiveMemoryTools.AddDrawerAsync(harness.Service, "sector_project", "chromadb-setup", "Project planning for same vault", "b.md", "test");
         await ReactiveMemoryTools.AddDrawerAsync(harness.Service, "sector_project", "sprint-planning", "Planning notes", "c.md", "test");
 
-        var traverse = await ReactiveMemoryTools.TraverseAsync(harness.Service, "chromadb-setup", 2);
+        var traverse = await ReactiveMemoryTools.TraverseAsync(harness.Service, "chromadb-setup", ExpectedPairCount);
         var tunnels = await ReactiveMemoryTools.FindTunnelsAsync(harness.Service, "sector_code", "sector_project");
         var stats = await ReactiveMemoryTools.GraphStatsAsync(harness.Service);
 
@@ -22,6 +30,8 @@ public class GraphAndDiaryTests
         await Assert.That(stats.TunnelVaults).IsEqualTo(1);
     }
 
+    /// <summary>Executes the Explicit_Tunnels_Can_Be_Created_Listed_Followed_And_Deleted operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Explicit_Tunnels_Can_Be_Created_Listed_Followed_And_Deleted()
     {
@@ -46,10 +56,12 @@ public class GraphAndDiaryTests
 
         await Assert.That(created.Success).IsTrue();
         await Assert.That(listed.Tunnels.Count).IsEqualTo(1);
-        await Assert.That(followed.ConnectedDrawers.Count).IsEqualTo(2);
+        await Assert.That(followed.ConnectedDrawers.Count).IsEqualTo(ExpectedPairCount);
         await Assert.That(deleted.Success).IsTrue();
     }
 
+    /// <summary>Executes the Diary_Write_And_Read_Return_Latest_Entries operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Diary_Write_And_Read_Return_Latest_Entries()
     {
@@ -57,11 +69,11 @@ public class GraphAndDiaryTests
         await ReactiveMemoryTools.DiaryWriteAsync(harness.Service, "Hermes", "SESSION:2026-04-09|built.server|★★★", "general");
         await ReactiveMemoryTools.DiaryWriteAsync(harness.Service, "Hermes", "SESSION:2026-04-10|verified.tests|★★★★", "tests");
 
-        var diary = await ReactiveMemoryTools.DiaryReadAsync(harness.Service, "Hermes", 2);
+        var diary = await ReactiveMemoryTools.DiaryReadAsync(harness.Service, "Hermes", ExpectedPairCount);
         var checkpoint = await ReactiveMemoryTools.MemoriesFiledAwayAsync(harness.Service);
 
         await Assert.That(diary.Agent).IsEqualTo("Hermes");
-        await Assert.That(diary.Entries.Count).IsEqualTo(2);
+        await Assert.That(diary.Entries.Count).IsEqualTo(ExpectedPairCount);
         await Assert.That(diary.Entries[0].Topic).IsEqualTo("tests");
         await Assert.That(checkpoint.Found).IsTrue();
     }

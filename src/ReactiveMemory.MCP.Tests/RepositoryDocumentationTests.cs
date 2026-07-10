@@ -1,9 +1,15 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System.Text.Json;
 
 namespace ReactiveMemory.MCP.Tests;
 
+/// <summary>Provides RepositoryDocumentationTests behavior.</summary>
 public class RepositoryDocumentationTests
 {
+    /// <summary>Executes the Readme_Metadata_And_Skill_Document_Managed_Memory_Npu_Workflow operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Readme_Metadata_And_Skill_Document_Managed_Memory_Npu_Workflow()
     {
@@ -22,6 +28,9 @@ public class RepositoryDocumentationTests
             "reactivememory_memory_summarise",
             "reactivememory_memory_prune",
             "reactivememory_memory_automanage",
+            "reactivememory_context_pack",
+            "reactivememory_catalog_project",
+            "reactivememory_migrate_legacy_storage",
         })
         {
             await Assert.That(readme).Contains(toolName);
@@ -34,6 +43,8 @@ public class RepositoryDocumentationTests
         await Assert.That(metadataDescription).Contains("managed memory");
     }
 
+    /// <summary>Executes the FindRepositoryRoot operation.</summary>
+    /// <returns>The operation result.</returns>
     private static string FindRepositoryRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

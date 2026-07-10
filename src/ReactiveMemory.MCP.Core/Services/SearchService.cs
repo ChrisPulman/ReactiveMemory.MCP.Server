@@ -1,15 +1,23 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using ReactiveMemory.MCP.Core.Models;
 
 namespace ReactiveMemory.MCP.Core.Services;
 
-/// <summary>
-/// Search and duplicate detection over locally persisted drawers.
-/// </summary>
+/// <summary>Search and duplicate detection over locally persisted drawers.</summary>
 public static class SearchService
 {
-    /// <summary>
-    /// Searches the specified collection of drawers for records matching the given query and optional filters.
-    /// </summary>
+    /// <summary>Maximum text length included in duplicate-match previews.</summary>
+    private const int DuplicatePreviewLength = 80;
+
+    /// <summary>Similarity assigned when a candidate contains the complete query.</summary>
+    private const double ContainedQuerySimilarity = 0.99;
+
+    /// <summary>Number of decimal places retained in lexical similarity scores.</summary>
+    private const int SimilarityDecimalPlaces = 3;
+
+    /// <summary>Searches the specified collection of drawers for records matching the given query and optional filters.</summary>
     /// <remarks>The search is case-insensitive and only includes records with a positive similarity score.
     /// Results are ordered by descending similarity, then by sector name. If limit is less than 1, it is treated as
     /// 1.</remarks>
@@ -42,11 +50,14 @@ public static class SearchService
             .Take(limit)
             .ToList();
 
-        return new SearchResult(query, new Dictionary<string, string?>
-        {
-            ["sector"] = sector,
-            ["vault"] = vault,
-        }, filtered);
+        return new SearchResult(
+            query,
+            new Dictionary<string, string?>
+            {
+                ["sector"] = sector,
+                ["vault"] = vault,
+            },
+            filtered);
     }
 
     /// <summary>
@@ -70,7 +81,7 @@ public static class SearchService
                 drawer.Sector,
                 drawer.Vault,
                 Score(normalized, Normalize(drawer.Text)),
-                drawer.Text.Length <= 80 ? drawer.Text : drawer.Text[..80]))
+                drawer.Text.Length <= DuplicatePreviewLength ? drawer.Text : drawer.Text[..DuplicatePreviewLength]))
             .Where(match => match.Similarity >= threshold)
             .OrderByDescending(match => match.Similarity)
             .ToList();
@@ -78,8 +89,15 @@ public static class SearchService
         return new DuplicateCheckResult(matches.Count > 0, threshold, matches);
     }
 
+    /// <summary>Documents the Normalize member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="value">The supplied value.</param>
     private static string Normalize(string value) => string.Join(' ', value.ToLowerInvariant().Split(default(string[]?), StringSplitOptions.RemoveEmptyEntries));
 
+    /// <summary>Documents the Score member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="query">The query value.</param>
+    /// <param name="text">The text value.</param>
     private static double Score(string query, string text)
     {
         if (string.Equals(query, text, StringComparison.Ordinal))
@@ -89,7 +107,7 @@ public static class SearchService
 
         if (text.Contains(query, StringComparison.Ordinal))
         {
-            return 0.99;
+            return ContainedQuerySimilarity;
         }
 
         var queryTerms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -100,6 +118,6 @@ public static class SearchService
 
         var textTerms = text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal);
         var matched = queryTerms.Count(textTerms.Contains);
-        return Math.Round((double)matched / queryTerms.Length, 3);
+        return Math.Round((double)matched / queryTerms.Length, SimilarityDecimalPlaces);
     }
 }

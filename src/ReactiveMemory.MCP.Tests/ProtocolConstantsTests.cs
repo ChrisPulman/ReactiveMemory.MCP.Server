@@ -1,9 +1,15 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using ReactiveMemory.MCP.Core.Constants;
 
 namespace ReactiveMemory.MCP.Tests;
 
+/// <summary>Provides ProtocolConstantsTests behavior.</summary>
 public class ProtocolConstantsTests
 {
+    /// <summary>Executes the Core_Protocol_Is_ReactiveMemory_Specific_And_Contains_Current_Tool_Names operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Core_Protocol_Is_ReactiveMemory_Specific_And_Contains_Current_Tool_Names()
     {
@@ -20,11 +26,16 @@ public class ProtocolConstantsTests
         await Assert.That(coreProtocol).Contains("reactivememory_memory_summarise");
         await Assert.That(coreProtocol).Contains("reactivememory_memory_prune");
         await Assert.That(coreProtocol).Contains("reactivememory_memory_automanage");
+        await Assert.That(coreProtocol).Contains("reactivememory_context_pack");
+        await Assert.That(coreProtocol).Contains("reactivememory_catalog_project");
+        await Assert.That(coreProtocol).Contains("reactivememory_migrate_legacy_storage");
         await Assert.That(coreProtocol).Contains("memory.add");
         await Assert.That(coreProtocol).Contains("memory.getRelevant");
         await Assert.That(coreProtocol).Contains("memory.automanage");
     }
 
+    /// <summary>Executes the Aaak_Spec_Defines_Authentication_Authorization_And_Accounting_Key_And_Avoids_Forbidden_Terms operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Aaak_Spec_Defines_Authentication_Authorization_And_Accounting_Key_And_Avoids_Forbidden_Terms()
     {
@@ -33,6 +44,8 @@ public class ProtocolConstantsTests
         await Assert.That(aaakSpec).Contains("Authentication, Authorization, and Accounting Key");
     }
 
+    /// <summary>Executes the Supported_Protocol_Versions_Are_Stable_And_Reference_Equal_Across_Reads operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Supported_Protocol_Versions_Are_Stable_And_Reference_Equal_Across_Reads()
     {
