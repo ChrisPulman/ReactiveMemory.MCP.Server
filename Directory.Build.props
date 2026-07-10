@@ -6,7 +6,7 @@
     <LangVersion>preview</LangVersion>
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Authors>Chris Pulman</Authors>
     <PackageProjectUrl>https://github.com/ChrisPulman/ReactiveMemory.MCP.Server</PackageProjectUrl>
     <RepositoryUrl>https://github.com/ChrisPulman/ReactiveMemory.MCP.Server</RepositoryUrl>
@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <PackageReference Include="Nerdbank.GitVersioning" PrivateAssets="all" />
+    <PackageReference Include="StyleSharp.Analyzers" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(IsTestProject)' == 'true'">

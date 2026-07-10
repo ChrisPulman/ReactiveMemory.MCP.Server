@@ -1,3 +1,6 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System.Text.Json;
 using ReactiveMemory.MCP.Core.Abstractions;
 using ReactiveMemory.MCP.Core.Models;
@@ -6,8 +9,23 @@ using ReactiveMemory.MCP.Server.Tools;
 
 namespace ReactiveMemory.MCP.Tests;
 
+/// <summary>Provides MemoryManagementTests behavior.</summary>
 public class MemoryManagementTests
 {
+    /// <summary>Number of memory records used by summary and prune fixtures.</summary>
+    private const int InitialMemoryCount = 3;
+
+    /// <summary>Expected memory count after applying duplicate pruning.</summary>
+    private const int PrunedMemoryCount = 2;
+
+    /// <summary>Automatic prune interval used by the scheduling fixture.</summary>
+    private const int AutomaticPruneIntervalMinutes = 30;
+
+    /// <summary>Low summary threshold used by the scheduling fixture.</summary>
+    private const int LowSummaryThreshold = 2;
+
+    /// <summary>Executes the Classifier_Categorises_Storeable_And_NonStoreable_Messages operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Classifier_Categorises_Storeable_And_NonStoreable_Messages()
     {
@@ -31,6 +49,8 @@ public class MemoryManagementTests
         await Assert.That(sensitive.ShouldStore).IsFalse();
     }
 
+    /// <summary>Executes the AutoManage_Never_Stores_Sensitive_Content operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task AutoManage_Never_Stores_Sensitive_Content()
     {
@@ -55,6 +75,8 @@ public class MemoryManagementTests
         await Assert.That(persistedText.Contains(secretPassword, StringComparison.Ordinal)).IsFalse();
     }
 
+    /// <summary>Executes the SummariseMemories_Uses_Deterministic_Fallback_When_Local_Model_Is_Unavailable operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task SummariseMemories_Uses_Deterministic_Fallback_When_Local_Model_Is_Unavailable()
     {
@@ -71,9 +93,11 @@ public class MemoryManagementTests
         await Assert.That(result.UsedLocalModel).IsFalse();
         await Assert.That(result.Summary).Contains("User prefers concise responses");
         await Assert.That(result.Summary).Contains("Repository uses Windows dotnet");
-        await Assert.That(result.InputCount).IsEqualTo(3);
+        await Assert.That(result.InputCount).IsEqualTo(InitialMemoryCount);
     }
 
+    /// <summary>Executes the PruneMemory_Recommends_Duplicates_And_Only_Deletes_When_Explicitly_Requested operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task PruneMemory_Recommends_Duplicates_And_Only_Deletes_When_Explicitly_Requested()
     {
@@ -89,14 +113,16 @@ public class MemoryManagementTests
 
         await Assert.That(dryRun.Applied).IsFalse();
         await Assert.That(dryRun.Recommendations.Any(item => item.Reason == MemoryPruneReason.Duplicate)).IsTrue();
-        await Assert.That(afterDryRun.Total).IsEqualTo(3);
+        await Assert.That(afterDryRun.Total).IsEqualTo(InitialMemoryCount);
         await Assert.That(dryRun.AuditEvents).Contains("prune_dry_run");
         await Assert.That(applied.Applied).IsTrue();
         await Assert.That(applied.DeletedDrawerIds.Count).IsGreaterThanOrEqualTo(1);
-        await Assert.That(afterApply.Total).IsEqualTo(2);
+        await Assert.That(afterApply.Total).IsEqualTo(PrunedMemoryCount);
         await Assert.That(applied.AuditEvents).Contains("prune_apply_explicit");
     }
 
+    /// <summary>Executes the AutoManage_Stores_Category_Metadata_And_Returns_Relevant_Memories operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task AutoManage_Stores_Category_Metadata_And_Returns_Relevant_Memories()
     {
@@ -113,6 +139,8 @@ public class MemoryManagementTests
         await Assert.That(relevant.Results[0].DrawerId).IsEqualTo(add.DrawerId);
     }
 
+    /// <summary>Executes the SummariseMemories_Uses_Local_Runtime_When_Available operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task SummariseMemories_Uses_Local_Runtime_When_Available()
     {
@@ -126,11 +154,13 @@ public class MemoryManagementTests
         await Assert.That(runtime.LastPrompt).Contains("alpha");
     }
 
+    /// <summary>Executes the AutoManage_Follows_ClassifyStoreSummarisePrune_Order_And_Uses_Configured_Threshold operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task AutoManage_Follows_ClassifyStoreSummarisePrune_Order_And_Uses_Configured_Threshold()
     {
         var runtime = new FakeSummarisingRuntime("threshold summary from fake runtime");
-        var harness = await TestHarness.CreateAsync(options => options.AutoManageSummaryThreshold = 3, runtime);
+        var harness = await TestHarness.CreateAsync(options => options.AutoManageSummaryThreshold = InitialMemoryCount, runtime);
         await ReactiveMemoryTools.AddMemoryAsync(harness.Service, "ReactiveMemory uses Microsoft Testing Platform for validation.", "agent-test");
         await ReactiveMemoryTools.AddMemoryAsync(harness.Service, "ReactiveMemory keeps deterministic hash embeddings as fallback.", "agent-test");
 
@@ -143,7 +173,7 @@ public class MemoryManagementTests
 
         await Assert.That(result.Stored).IsTrue();
         await Assert.That(result.Summary).IsNotNull();
-        await Assert.That(result.Summary!.InputCount).IsEqualTo(3);
+        await Assert.That(result.Summary!.InputCount).IsEqualTo(InitialMemoryCount);
         await Assert.That(result.Summary.UsedLocalModel).IsTrue();
         await Assert.That(result.Pruning).IsNotNull();
         await Assert.That(result.Pruning!.AuditId).IsNotNull();
@@ -158,6 +188,24 @@ public class MemoryManagementTests
         await Assert.That(result.AuditEvents.IndexOf("summary_completed:threshold_reached")).IsLessThan(result.AuditEvents.IndexOf("prune_checked:dry_run"));
     }
 
+    /// <summary>Executes the AutoManage_Throttles_Expensive_Automatic_Prune_Dry_Runs operation.</summary>
+    /// <returns>The operation result.</returns>
+    [Test]
+    public async Task AutoManage_Throttles_Expensive_Automatic_Prune_Dry_Runs()
+    {
+        var harness = await TestHarness.CreateAsync(options => options.AutoManagePruneIntervalMinutes = AutomaticPruneIntervalMinutes);
+
+        var first = await ReactiveMemoryTools.AutoManageMemoryAsync(harness.Service, "ReactiveMemory stores durable project decisions for agents.", "agent-test");
+        var second = await ReactiveMemoryTools.AutoManageMemoryAsync(harness.Service, "ReactiveMemory recalls those decisions across later projects.", "agent-test");
+
+        await Assert.That(first.Pruning).IsNotNull();
+        await Assert.That(first.AuditEvents).Contains("prune_checked:dry_run");
+        await Assert.That(second.Pruning).IsNull();
+        await Assert.That(second.AuditEvents).Contains("prune_skipped:cadence");
+    }
+
+    /// <summary>Executes the PruneMemory_Recommends_Outdated_Contradictory_And_Irrelevant_Records_With_AuditId operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task PruneMemory_Recommends_Outdated_Contradictory_And_Irrelevant_Records_With_AuditId()
     {
@@ -178,10 +226,12 @@ public class MemoryManagementTests
         await Assert.That(reasons).Contains(MemoryPruneReason.Contradiction);
     }
 
+    /// <summary>Executes the Server_Memory_Tool_Json_Shapes_Expose_Compatibility_Alias_Results operation.</summary>
+    /// <returns>The operation result.</returns>
     [Test]
     public async Task Server_Memory_Tool_Json_Shapes_Expose_Compatibility_Alias_Results()
     {
-        var harness = await TestHarness.CreateAsync(options => options.AutoManageSummaryThreshold = 2);
+        var harness = await TestHarness.CreateAsync(options => options.AutoManageSummaryThreshold = LowSummaryThreshold);
 
         var addJson = await MemoryTools.AddMemoryAsync(harness.Service, "I prefer terminal friendly JSON output.", "agent-test");
         var relevantJson = await MemoryTools.GetRelevantMemoryAsync(harness.Service, "terminal JSON", limit: 1);
@@ -198,21 +248,32 @@ public class MemoryManagementTests
         await Assert.That(add.RootElement.GetProperty("stored").GetBoolean()).IsTrue();
         await Assert.That(add.RootElement.GetProperty("classification").GetProperty("categoryKey").GetString()).IsEqualTo("personal_preference");
         await Assert.That(relevant.RootElement.GetProperty("results").GetArrayLength()).IsGreaterThanOrEqualTo(1);
-        await Assert.That(summary.RootElement.GetProperty("summary").GetString()).IsNotNull();
+        await Assert.That(summary.RootElement.GetProperty(nameof(summary)).GetString()).IsNotNull();
         await Assert.That(prune.RootElement.GetProperty("auditId").GetString()).IsNotNull();
         await Assert.That(automanage.RootElement.GetProperty("auditEvents").EnumerateArray().Select(static item => item.GetString())).Contains("prune_checked:dry_run");
     }
 
+    /// <summary>Provides FakeSummarisingRuntime behavior.</summary>
+    /// <param name="summary">The generated summary.</param>
     private sealed class FakeSummarisingRuntime(string summary) : ILocalModelRuntime
     {
+        /// <summary>Gets the last prompt.</summary>
         public string? LastPrompt { get; private set; }
 
+        /// <summary>Executes the GetStatus operation.</summary>
+        /// <returns>The operation result.</returns>
         public LocalModelStatusResult GetStatus()
             => new(true, true, "Hash", "Hash", ".", null, null, false, false, ["CPU"], [], true, false, null, false, false, null, "fake", null, []);
 
+        /// <summary>Executes the TryCreateEmbeddingProvider operation.</summary>
+        /// <returns>The operation result.</returns>
         public LocalEmbeddingProviderResolution TryCreateEmbeddingProvider()
             => LocalEmbeddingProviderResolution.Unavailable("fake does not provide embeddings");
 
+        /// <summary>Executes the TryGenerateTextAsync operation.</summary>
+        /// <returns>The operation result.</returns>
+        /// <param name="prompt">The prompt value.</param>
+        /// <param name="cancellationToken">The cancellationToken value.</param>
         public Task<LocalTextGenerationResult> TryGenerateTextAsync(string prompt, CancellationToken cancellationToken = default)
         {
             LastPrompt = prompt;

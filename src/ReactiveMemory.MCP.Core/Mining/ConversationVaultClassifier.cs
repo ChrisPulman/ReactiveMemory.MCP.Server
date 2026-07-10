@@ -1,10 +1,12 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 namespace ReactiveMemory.MCP.Core.Mining;
 
-/// <summary>
-/// Classify conversation chunks into vaults using simple heuristic keyword maps.
-/// </summary>
+/// <summary>Classify conversation chunks into vaults using simple heuristic keyword maps.</summary>
 public static class ConversationVaultClassifier
 {
+    /// <summary>Documents the Keywords member.</summary>
     private static readonly IReadOnlyDictionary<string, string[]> Keywords = new Dictionary<string, string[]>
     {
         ["technical"] = ["bug", "api", "database", "error", "code", "compile"],
@@ -14,9 +16,7 @@ public static class ConversationVaultClassifier
         ["problems"] = ["issue", "problem", "broken", "failure", "stuck"],
     };
 
-    /// <summary>
-    /// Classifies the specified text content into a category based on keyword analysis.
-    /// </summary>
+    /// <summary>Classifies the specified text content into a category based on keyword analysis.</summary>
     /// <remarks>The classification is determined by matching the content against predefined keyword sets for
     /// each category. The method is case-insensitive and returns the category with the highest keyword match
     /// score.</remarks>
@@ -28,9 +28,9 @@ public static class ConversationVaultClassifier
         ArgumentException.ThrowIfNullOrWhiteSpace(content);
         var normalized = content.ToLowerInvariant();
         var scored = Keywords
-            .Select(pair => new { pair.Key, Score = pair.Value.Count(normalized.Contains) })
+            .Select(pair => (pair.Key, Score: pair.Value.Count(normalized.Contains)))
             .OrderByDescending(static pair => pair.Score)
             .FirstOrDefault();
-        return scored is not null && scored.Score > 0 ? scored.Key : "general";
+        return scored.Score > 0 ? scored.Key : "general";
     }
 }

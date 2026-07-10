@@ -1,22 +1,30 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 namespace ReactiveMemory.MCP.Core.Services;
 
-/// <summary>
-/// Lightweight deterministic embedding generator for local vector-compatible search.
-/// </summary>
+/// <summary>Lightweight deterministic embedding generator for local vector-compatible search.</summary>
 public static class SimpleTextEmbeddingService
 {
-    /// <summary>
-    /// Stable dimensionality for deterministic hash embeddings.
-    /// </summary>
+    /// <summary>Stable dimensionality for deterministic hash embeddings.</summary>
     public const int VectorDimensions = 512;
 
-    private const int Dimensions = VectorDimensions;
-    private const ulong FnvOffsetBasis = 14695981039346656037UL;
-    private const ulong FnvPrime = 1099511628211UL;
+    /// <summary>Number of decimal places retained in cosine-similarity results.</summary>
+    private const int SimilarityDecimalPlaces = 3;
 
-    /// <summary>
-    /// Generates a normalized embedding vector representing the specified text.
-    /// </summary>
+    /// <summary>Initial token buffer capacity.</summary>
+    private const int TokenBufferCapacity = 32;
+
+    /// <summary>Documents the Dimensions member.</summary>
+    private const int Dimensions = VectorDimensions;
+
+    /// <summary>Documents the FnvOffsetBasis member.</summary>
+    private const ulong FnvOffsetBasis = 14_695_981_039_346_656_037UL;
+
+    /// <summary>Documents the FnvPrime member.</summary>
+    private const ulong FnvPrime = 1_099_511_628_211UL;
+
+    /// <summary>Generates a normalized embedding vector representing the specified text.</summary>
     /// <remarks>The returned vector has a fixed dimensionality and is normalized to unit length. Identical
     /// input text will always produce the same embedding. This method is case-insensitive and ignores empty or
     /// white-space-only tokens.</remarks>
@@ -48,9 +56,7 @@ public static class SimpleTextEmbeddingService
         return vector;
     }
 
-    /// <summary>
-    /// Calculates the cosine similarity between two numeric vectors.
-    /// </summary>
+    /// <summary>Calculates the cosine similarity between two numeric vectors.</summary>
     /// <remarks>Cosine similarity measures the cosine of the angle between two vectors, providing a value
     /// between -1 and 1. The calculation uses the minimum length of the two vectors; any extra elements in the longer
     /// vector are ignored.</remarks>
@@ -73,17 +79,15 @@ public static class SimpleTextEmbeddingService
             rightMagnitude += right[i] * right[i];
         }
 
-        if (leftMagnitude == 0 || rightMagnitude == 0)
-        {
-            return 0;
-        }
-
-        return Math.Round(dot / (Math.Sqrt(leftMagnitude) * Math.Sqrt(rightMagnitude)), 3);
+        return leftMagnitude == 0 || rightMagnitude == 0 ? 0 : Math.Round(dot / (Math.Sqrt(leftMagnitude) * Math.Sqrt(rightMagnitude)), SimilarityDecimalPlaces);
     }
 
+    /// <summary>Documents the Tokenize member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="value">The supplied value.</param>
     private static IEnumerable<string> Tokenize(string value)
     {
-        var buffer = new List<char>(32);
+        var buffer = new List<char>(TokenBufferCapacity);
         foreach (var character in value)
         {
             if (char.IsLetterOrDigit(character) || character == '_')
@@ -105,6 +109,9 @@ public static class SimpleTextEmbeddingService
         }
     }
 
+    /// <summary>Documents the StableHash member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="value">The supplied value.</param>
     private static ulong StableHash(string value)
     {
         var hash = FnvOffsetBasis;

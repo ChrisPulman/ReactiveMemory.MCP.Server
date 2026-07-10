@@ -1,3 +1,6 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System.Text.Json;
 using ReactiveMemory.MCP.Core.Abstractions;
 using ReactiveMemory.MCP.Core.Configuration;
@@ -5,22 +8,43 @@ using ReactiveMemory.MCP.Core.Models;
 
 namespace ReactiveMemory.MCP.Core.Storage;
 
-/// <summary>
-/// JSON-backed vector-compatible store used as the default local storage provider.
-/// </summary>
-public sealed class JsonVectorStore : IVectorStore, IDisposable
+/// <summary>JSON-backed vector-compatible store used as the default local storage provider.</summary>
+public sealed class JsonVectorStore : IVectorStore, IVectorStoreMigration, IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
-    private readonly string filePath;
-    private readonly IEmbeddingProvider embeddingProvider;
-    private readonly SemaphoreSlim gate = new(1, 1);
-    private List<VectorRecord>? records;
-    private Dictionary<string, VectorRecord>? recordsById;
-    private bool disposed;
+    /// <summary>Contribution of semantic vector similarity to a blended search score.</summary>
+    private const double VectorSimilarityWeight = 0.65;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="JsonVectorStore"/> class.
-    /// </summary>
+    /// <summary>Contribution of lexical overlap to a blended search score.</summary>
+    private const double LexicalSimilarityWeight = 0.35;
+
+    /// <summary>Number of decimal places retained in blended similarity scores.</summary>
+    private const int SimilarityDecimalPlaces = 3;
+
+    /// <summary>Buffer size used for durable vector-store writes.</summary>
+    private const int FileBufferSizeBytes = 16 * 1024;
+
+    /// <summary>Documents the JsonOptions member.</summary>
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+
+    /// <summary>Documents the _filePath member.</summary>
+    private readonly string _filePath;
+
+    /// <summary>Documents the _embeddingProvider member.</summary>
+    private readonly IEmbeddingProvider _embeddingProvider;
+
+    /// <summary>Documents the _gate member.</summary>
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
+    /// <summary>Documents the _records member.</summary>
+    private List<VectorRecord>? _records;
+
+    /// <summary>Documents the _recordsById member.</summary>
+    private Dictionary<string, VectorRecord>? _recordsById;
+
+    /// <summary>Documents the _disposed member.</summary>
+    private bool _disposed;
+
+    /// <summary>Initializes a new instance of the <see cref="JsonVectorStore"/> class.</summary>
     /// <param name="options">ReactiveMemory options.</param>
     /// <param name="embeddingProvider">Embedding provider.</param>
     /// <param name="collectionName">Optional override collection name.</param>
@@ -31,110 +55,116 @@ public sealed class JsonVectorStore : IVectorStore, IDisposable
     {
     }
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="JsonVectorStore"/> class using an explicit file path.
-    /// </summary>
+    /// <summary>Initializes a new instance of the <see cref="JsonVectorStore"/> class using an explicit file path.</summary>
     /// <param name="filePath">Backing JSON file path.</param>
     /// <param name="embeddingProvider">Embedding provider.</param>
     public JsonVectorStore(string filePath, IEmbeddingProvider embeddingProvider)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
         ArgumentNullException.ThrowIfNull(embeddingProvider);
-        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
-        this.filePath = filePath;
-        this.embeddingProvider = embeddingProvider;
+        _ = Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        _filePath = filePath;
+        _embeddingProvider = embeddingProvider;
     }
 
     /// <inheritdoc/>
     public void Dispose()
     {
-        if (disposed)
+        if (_disposed)
         {
             return;
         }
 
-        gate.Dispose();
-        disposed = true;
+        _gate.Dispose();
+        _disposed = true;
     }
 
+    /// <summary>Executes the InitializeAsync operation.</summary>
     /// <inheritdoc/>
+    /// <returns>The operation result.</returns>
     public async Task InitializeAsync()
     {
-        await gate.WaitAsync();
+        await _gate.WaitAsync();
         try
         {
-            if (!File.Exists(filePath))
+            if (!File.Exists(_filePath))
             {
-                await WriteFileUnsafeAsync(new List<VectorRecord>());
+                await WriteFileUnsafeAsync([]);
             }
 
             await LoadUnsafeAsync();
         }
         finally
         {
-            gate.Release();
+            _ = _gate.Release();
         }
     }
 
+    /// <summary>Executes the UpsertAsync operation.</summary>
     /// <inheritdoc/>
+    /// <returns>The operation result.</returns>
+    /// <param name="record">The record value.</param>
     public async Task<UpsertVectorRecordResult> UpsertAsync(VectorRecord record)
     {
         ArgumentNullException.ThrowIfNull(record);
-        await gate.WaitAsync();
+        await _gate.WaitAsync();
         try
         {
             await EnsureLoadedUnsafeAsync();
-            var embedded = StampEmbeddingProfile(record.Embedding is null ? record with { Embedding = embeddingProvider.Embed(record.Content) } : record);
-            if (recordsById!.ContainsKey(record.Id))
+            var embedded = StampEmbeddingProfile(record.Embedding is null ? record with { Embedding = _embeddingProvider.Embed(record.Content) } : record);
+            if (_recordsById!.ContainsKey(record.Id))
             {
-                for (var i = 0; i < records!.Count; i++)
+                for (var i = 0; i < _records!.Count; i++)
                 {
-                    if (!string.Equals(records[i].Id, record.Id, StringComparison.Ordinal))
+                    if (!string.Equals(_records[i].Id, record.Id, StringComparison.Ordinal))
                     {
                         continue;
                     }
 
-                    records[i] = embedded;
+                    _records[i] = embedded;
                     break;
                 }
 
-                recordsById[record.Id] = embedded;
+                _recordsById[record.Id] = embedded;
                 await FlushUnsafeAsync();
                 return new UpsertVectorRecordResult(false, embedded, "updated");
             }
 
-            records!.Add(embedded);
-            recordsById[embedded.Id] = embedded;
+            _records!.Add(embedded);
+            _recordsById[embedded.Id] = embedded;
             await FlushUnsafeAsync();
             return new UpsertVectorRecordResult(true, embedded);
         }
         finally
         {
-            gate.Release();
+            _ = _gate.Release();
         }
     }
 
+    /// <summary>Executes the DeleteAsync operation.</summary>
     /// <inheritdoc/>
+    /// <returns>The operation result.</returns>
+    /// <param name="id">The id value.</param>
     public async Task<bool> DeleteAsync(string id)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        await gate.WaitAsync();
+        await _gate.WaitAsync();
         try
         {
             await EnsureLoadedUnsafeAsync();
-            if (!recordsById!.Remove(id))
+            if (!_recordsById!.Remove(id))
             {
                 return false;
             }
 
-            for (var i = records!.Count - 1; i >= 0; i--)
+            for (var i = _records!.Count - 1; i >= 0; i--)
             {
-                if (!string.Equals(records[i].Id, id, StringComparison.Ordinal))
+                if (!string.Equals(_records[i].Id, id, StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                records.RemoveAt(i);
+                _records.RemoveAt(i);
                 break;
             }
 
@@ -143,48 +173,99 @@ public sealed class JsonVectorStore : IVectorStore, IDisposable
         }
         finally
         {
-            gate.Release();
+            _ = _gate.Release();
         }
     }
 
+    /// <summary>Executes the GetAllAsync operation.</summary>
     /// <inheritdoc/>
+    /// <returns>The operation result.</returns>
     public async Task<IReadOnlyList<VectorRecord>> GetAllAsync()
     {
-        await gate.WaitAsync();
+        await _gate.WaitAsync();
         try
         {
             await EnsureLoadedUnsafeAsync();
-            return records!.ToList();
+            return _records!.ToList();
         }
         finally
         {
-            gate.Release();
+            _ = _gate.Release();
         }
     }
 
+    /// <summary>Executes the MigrateAsync operation.</summary>
     /// <inheritdoc/>
-    public async Task<VectorQueryResult> QueryAsync(string queryText, int limit, IReadOnlyDictionary<string, string?>? filters = null)
+    /// <returns>The operation result.</returns>
+    /// <param name="expectedRecords">The expectedRecords value.</param>
+    /// <param name="apply">The apply value.</param>
+    public async Task<VectorStoreMigrationSummary> MigrateAsync(IReadOnlyList<VectorRecord> expectedRecords, bool apply)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(queryText);
-        var queryEmbedding = embeddingProvider.Embed(queryText);
-        var boundedLimit = Math.Max(1, limit);
-        var hits = new List<VectorQueryHit>(boundedLimit);
-
-        await gate.WaitAsync();
+        ArgumentNullException.ThrowIfNull(expectedRecords);
+        await _gate.WaitAsync();
         try
         {
             await EnsureLoadedUnsafeAsync();
-            for (var i = 0; i < records!.Count; i++)
+            var existingRecordCount = _records!.Count;
+            var expectedById = expectedRecords.ToDictionary(static record => record.Id, StringComparer.Ordinal);
+            var missing = 0;
+            var stale = 0;
+            var legacyEmbedding = 0;
+            var migrated = 0;
+
+            foreach (var expected in expectedRecords)
             {
-                var item = records[i];
+                var result = ReconcileExpected(expected, apply);
+                missing += result.Missing;
+                stale += result.Stale;
+                legacyEmbedding += result.Legacy;
+                migrated += result.Migrated;
+            }
+
+            var orphanRecords = _records!.Count(record => !expectedById.ContainsKey(record.Id));
+            if (apply && migrated > 0)
+            {
+                await FlushUnsafeAsync();
+            }
+
+            return new VectorStoreMigrationSummary(existingRecordCount, expectedRecords.Count, missing, stale, legacyEmbedding, orphanRecords, migrated);
+        }
+        finally
+        {
+            _ = _gate.Release();
+        }
+    }
+
+    /// <summary>Executes the QueryAsync operation.</summary>
+    /// <inheritdoc/>
+    /// <returns>The operation result.</returns>
+    /// <param name="queryText">The queryText value.</param>
+    /// <param name="limit">The limit value.</param>
+    /// <param name="filters">The filters value.</param>
+    public async Task<VectorQueryResult> QueryAsync(string queryText, int limit, IReadOnlyDictionary<string, string?>? filters = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(queryText);
+        var queryEmbedding = _embeddingProvider.Embed(queryText);
+        var boundedLimit = Math.Max(1, limit);
+        var hits = new List<VectorQueryHit>(boundedLimit);
+
+        await _gate.WaitAsync();
+        try
+        {
+            await EnsureLoadedUnsafeAsync();
+            for (var i = 0; i < _records!.Count; i++)
+            {
+                var item = _records[i];
                 if (!MatchesFilters(item, filters))
                 {
                     continue;
                 }
 
-                var vectorSimilarity = embeddingProvider.Similarity(queryEmbedding, ResolveQueryableEmbedding(item));
-                var lexicalSimilarity = TokenOverlap(queryText, item.Content);
-                var similarity = Math.Round(Math.Max(vectorSimilarity, (vectorSimilarity * 0.65) + (lexicalSimilarity * 0.35)), 3);
+                var vectorSimilarity = _embeddingProvider.Similarity(queryEmbedding, ResolveQueryableEmbedding(item));
+                var lexicalSimilarity = VectorText.TokenOverlap(queryText, item.Content);
+                var similarity = Math.Round(
+                    Math.Max(vectorSimilarity, (vectorSimilarity * VectorSimilarityWeight) + (lexicalSimilarity * LexicalSimilarityWeight)),
+                    SimilarityDecimalPlaces);
                 if (similarity <= 0)
                 {
                     continue;
@@ -195,12 +276,16 @@ public sealed class JsonVectorStore : IVectorStore, IDisposable
         }
         finally
         {
-            gate.Release();
+            _ = _gate.Release();
         }
 
         return new VectorQueryResult(queryText, hits);
     }
 
+    /// <summary>Documents the MatchesFilters member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="item">The item value.</param>
+    /// <param name="filters">The filters value.</param>
     private static bool MatchesFilters(VectorRecord item, IReadOnlyDictionary<string, string?>? filters)
     {
         if (filters is null || filters.Count == 0)
@@ -224,48 +309,32 @@ public sealed class JsonVectorStore : IVectorStore, IDisposable
         return true;
     }
 
-    private VectorRecord StampEmbeddingProfile(VectorRecord record)
+    /// <summary>Documents the MetadataEquals member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="left">The left value.</param>
+    /// <param name="right">The right value.</param>
+    private static bool MetadataEquals(IReadOnlyDictionary<string, string?> left, IReadOnlyDictionary<string, string?> right)
     {
-        var dimensions = record.Embedding?.Count ?? embeddingProvider.Dimensions;
-        return record with
-        {
-            EmbeddingProviderId = string.IsNullOrWhiteSpace(record.EmbeddingProviderId) ? embeddingProvider.ProviderId : record.EmbeddingProviderId,
-            EmbeddingVersion = record.EmbeddingVersion ?? embeddingProvider.Version,
-            EmbeddingDimensions = record.EmbeddingDimensions ?? dimensions,
-        };
-    }
-
-    private IReadOnlyList<double> ResolveQueryableEmbedding(VectorRecord record)
-    {
-        if (record.Embedding is null)
-        {
-            return embeddingProvider.Embed(record.Content);
-        }
-
-        if (IsEmbeddingCompatible(record))
-        {
-            return record.Embedding;
-        }
-
-        return embeddingProvider.Embed(record.Content);
-    }
-
-    private bool IsEmbeddingCompatible(VectorRecord record)
-    {
-        if (record.Embedding is null)
+        if (left.Count != right.Count)
         {
             return false;
         }
 
-        var providerId = string.IsNullOrWhiteSpace(record.EmbeddingProviderId) ? "Hash" : record.EmbeddingProviderId;
-        var version = record.EmbeddingVersion ?? 1;
-        var dimensions = record.EmbeddingDimensions ?? record.Embedding.Count;
-        return string.Equals(providerId, embeddingProvider.ProviderId, StringComparison.OrdinalIgnoreCase)
-            && version == embeddingProvider.Version
-            && dimensions == embeddingProvider.Dimensions
-            && record.Embedding.Count == embeddingProvider.Dimensions;
+        foreach (var pair in left)
+        {
+            if (!right.TryGetValue(pair.Key, out var value) || !string.Equals(pair.Value, value, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
+    /// <summary>Documents the AddTopHit member.</summary>
+    /// <param name="hits">The hits value.</param>
+    /// <param name="hit">The hit value.</param>
+    /// <param name="limit">The limit value.</param>
     private static void AddTopHit(List<VectorQueryHit> hits, VectorQueryHit hit, int limit)
     {
         var insertAt = hits.FindIndex(existing => hit.Similarity > existing.Similarity);
@@ -286,70 +355,156 @@ public sealed class JsonVectorStore : IVectorStore, IDisposable
         }
     }
 
-    private static double TokenOverlap(string queryText, string content)
+    /// <summary>Determines whether stored content or metadata is stale.</summary>
+    /// <param name="existing">The stored record.</param>
+    /// <param name="expected">The expected record.</param>
+    /// <returns><see langword="true"/> when the stored record is stale.</returns>
+    private static bool IsStale(VectorRecord existing, VectorRecord expected)
+        => !string.Equals(existing.Content, expected.Content, StringComparison.Ordinal)
+           || !MetadataEquals(existing.Metadata, expected.Metadata);
+
+    /// <summary>Reconciles one expected vector record.</summary>
+    /// <param name="expected">The expected record.</param>
+    /// <param name="apply">Whether to persist the reconciliation.</param>
+    /// <returns>The reconciliation counters.</returns>
+    private (int Missing, int Stale, int Legacy, int Migrated) ReconcileExpected(VectorRecord expected, bool apply)
     {
-        var queryTokens = Tokenize(queryText).ToArray();
-        if (queryTokens.Length == 0)
+        if (!_recordsById!.TryGetValue(expected.Id, out var existing))
         {
-            return 0;
+            return AddMissingExpected(expected, apply);
         }
 
-        var contentTokens = Tokenize(content).ToHashSet(StringComparer.Ordinal);
-        if (contentTokens.Count == 0)
+        var isStale = IsStale(existing, expected);
+        var isLegacy = IsLegacyEmbedding(existing);
+        var shouldReplace = apply && (isStale || isLegacy);
+        if (shouldReplace)
         {
-            return 0;
+            ReplaceUnsafe(CreateReplacement(expected));
         }
 
-        var matched = queryTokens.Count(contentTokens.Contains);
-        return Math.Round((double)matched / queryTokens.Length, 3);
+        return (0, Convert.ToInt32(isStale), Convert.ToInt32(isLegacy), Convert.ToInt32(shouldReplace));
     }
 
-    private static IEnumerable<string> Tokenize(string value)
+    /// <summary>Adds an expected record that is missing from the index.</summary>
+    /// <param name="expected">The expected record.</param>
+    /// <param name="apply">Whether to add the record.</param>
+    /// <returns>The reconciliation counters.</returns>
+    private (int Missing, int Stale, int Legacy, int Migrated) AddMissingExpected(VectorRecord expected, bool apply)
     {
-        var buffer = new List<char>(32);
-        foreach (var character in value)
+        if (apply)
         {
-            if (char.IsLetterOrDigit(character) || character == '_')
+            var replacement = CreateReplacement(expected);
+            _records!.Add(replacement);
+            _recordsById![replacement.Id] = replacement;
+        }
+
+        return (1, 0, 0, Convert.ToInt32(apply));
+    }
+
+    /// <summary>Determines whether a record uses a legacy or incompatible embedding profile.</summary>
+    /// <param name="existing">The stored record.</param>
+    /// <returns><see langword="true"/> when the embedding must be refreshed.</returns>
+    private bool IsLegacyEmbedding(VectorRecord existing)
+        => string.IsNullOrWhiteSpace(existing.EmbeddingProviderId)
+           || existing.EmbeddingVersion is null
+           || existing.EmbeddingDimensions is null
+           || !IsEmbeddingCompatible(existing);
+
+    /// <summary>Creates a replacement record with the active embedding profile.</summary>
+    /// <param name="expected">The expected record.</param>
+    /// <returns>The replacement record.</returns>
+    private VectorRecord CreateReplacement(VectorRecord expected)
+        => StampEmbeddingProfile(expected with { Embedding = _embeddingProvider.Embed(expected.Content) });
+
+    /// <summary>Documents the StampEmbeddingProfile member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="record">The record value.</param>
+    private VectorRecord StampEmbeddingProfile(VectorRecord record)
+    {
+        var dimensions = record.Embedding?.Count ?? _embeddingProvider.Dimensions;
+        return record with
+        {
+            EmbeddingProviderId = string.IsNullOrWhiteSpace(record.EmbeddingProviderId) ? _embeddingProvider.ProviderId : record.EmbeddingProviderId,
+            EmbeddingVersion = record.EmbeddingVersion ?? _embeddingProvider.Version,
+            EmbeddingDimensions = record.EmbeddingDimensions ?? dimensions,
+        };
+    }
+
+    /// <summary>Documents the ResolveQueryableEmbedding member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="record">The record value.</param>
+    private IReadOnlyList<double> ResolveQueryableEmbedding(VectorRecord record)
+    {
+        if (record.Embedding is null)
+        {
+            return _embeddingProvider.Embed(record.Content);
+        }
+
+        return IsEmbeddingCompatible(record) ? record.Embedding : _embeddingProvider.Embed(record.Content);
+    }
+
+    /// <summary>Documents the IsEmbeddingCompatible member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="record">The record value.</param>
+    private bool IsEmbeddingCompatible(VectorRecord record)
+    {
+        if (record.Embedding is null)
+        {
+            return false;
+        }
+
+        var providerId = string.IsNullOrWhiteSpace(record.EmbeddingProviderId) ? "Hash" : record.EmbeddingProviderId;
+        var version = record.EmbeddingVersion ?? 1;
+        var dimensions = record.EmbeddingDimensions ?? record.Embedding.Count;
+        return string.Equals(providerId, _embeddingProvider.ProviderId, StringComparison.OrdinalIgnoreCase)
+            && version == _embeddingProvider.Version
+            && dimensions == _embeddingProvider.Dimensions
+            && record.Embedding.Count == _embeddingProvider.Dimensions;
+    }
+
+    /// <summary>Documents the ReplaceUnsafe member.</summary>
+    /// <param name="replacement">The replacement value.</param>
+    private void ReplaceUnsafe(VectorRecord replacement)
+    {
+        for (var i = 0; i < _records!.Count; i++)
+        {
+            if (!string.Equals(_records[i].Id, replacement.Id, StringComparison.Ordinal))
             {
-                buffer.Add(char.ToLowerInvariant(character));
                 continue;
             }
 
-            if (buffer.Count > 0)
-            {
-                yield return new string(buffer.ToArray());
-                buffer.Clear();
-            }
-        }
-
-        if (buffer.Count > 0)
-        {
-            yield return new string(buffer.ToArray());
+            _records[i] = replacement;
+            _recordsById![replacement.Id] = replacement;
+            return;
         }
     }
 
+    /// <summary>Documents the EnsureLoadedUnsafeAsync member.</summary>
+    /// <returns>The operation result.</returns>
     private async Task EnsureLoadedUnsafeAsync()
     {
-        if (records is null || recordsById is null)
+        if (_records is null || _recordsById is null)
         {
             await LoadUnsafeAsync();
         }
     }
 
+    /// <summary>Documents the LoadUnsafeAsync member.</summary>
+    /// <returns>The operation result.</returns>
     private async Task LoadUnsafeAsync()
     {
-        if (!File.Exists(filePath))
+        if (!File.Exists(_filePath))
         {
-            records = [];
-            recordsById = new Dictionary<string, VectorRecord>(StringComparer.Ordinal);
+            _records = [];
+            _recordsById = new(StringComparer.Ordinal);
             return;
         }
 
         try
         {
-            var content = await File.ReadAllTextAsync(filePath);
-            records = JsonSerializer.Deserialize<List<VectorRecord>>(content, JsonOptions) ?? [];
-            recordsById = records.ToDictionary(static record => record.Id, StringComparer.Ordinal);
+            var content = await File.ReadAllTextAsync(_filePath);
+            _records = JsonSerializer.Deserialize<List<VectorRecord>>(content, JsonOptions) ?? [];
+            _recordsById = _records.ToDictionary(static record => record.Id, StringComparer.Ordinal);
         }
         catch (JsonException ex)
         {
@@ -358,32 +513,39 @@ public sealed class JsonVectorStore : IVectorStore, IDisposable
         }
     }
 
+    /// <summary>Documents the FlushUnsafeAsync member.</summary>
+    /// <returns>The operation result.</returns>
     private async Task FlushUnsafeAsync()
     {
-        await WriteFileUnsafeAsync(records ?? []);
+        await WriteFileUnsafeAsync(_records ?? []);
     }
 
+    /// <summary>Documents the WriteFileUnsafeAsync member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="items">The items value.</param>
     private async Task WriteFileUnsafeAsync(List<VectorRecord> items)
     {
-        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
-        await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 16 * 1024, FileOptions.WriteThrough))
+        var tempPath = $"{_filePath}.{Guid.NewGuid():N}.tmp";
+        await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, FileBufferSizeBytes, FileOptions.WriteThrough))
         {
             await JsonSerializer.SerializeAsync(stream, items, JsonOptions);
             await stream.FlushAsync();
         }
 
-        File.Move(tempPath, filePath, overwrite: true);
+        File.Move(tempPath, _filePath, overwrite: true);
     }
 
+    /// <summary>Documents the PreserveCorruptFile member.</summary>
+    /// <returns>The operation result.</returns>
     private string PreserveCorruptFile()
     {
-        var corruptPath = $"{filePath}.corrupt";
+        var corruptPath = $"{_filePath}.corrupt";
         if (File.Exists(corruptPath))
         {
-            corruptPath = $"{filePath}.{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.corrupt";
+            corruptPath = $"{_filePath}.{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.corrupt";
         }
 
-        File.Copy(filePath, corruptPath, overwrite: false);
+        File.Copy(_filePath, corruptPath, overwrite: false);
         return corruptPath;
     }
 }

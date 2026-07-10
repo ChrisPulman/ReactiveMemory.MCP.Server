@@ -45,7 +45,7 @@ Manual MCP configuration using NuGet:
 1. Install the MCP server with the quick-install link or the `dnx` configuration above.
 2. Restart or reload your MCP-capable client so it discovers the `reactivememory_*` tools.
 3. Ask your assistant to call `reactivememory_status` to confirm the core path, current taxonomy, and fallback-safe local model status.
-4. For memory-aware work, have the assistant call `reactivememory_memory_automanage` or `reactivememory_react_to_prompt` at the start of each user prompt, then use `reactivememory_memory_get_relevant`, `reactivememory_search_relays`, `reactivememory_search`, or `reactivememory_facts_query` before answering from memory.
+4. For memory-aware work, have the assistant call `reactivememory_memory_automanage` or `reactivememory_react_to_prompt` at the start of each user prompt, then use `reactivememory_context_pack`, `reactivememory_memory_get_relevant`, `reactivememory_search_relays`, `reactivememory_search`, or `reactivememory_facts_query` before answering from memory.
 5. After meaningful work, store durable outcomes with `reactivememory_memory_add`, `reactivememory_add_drawer`, or `reactivememory_diary_write` rather than saving full transcripts. Use `reactivememory_memory_classify` / `reactivememory_memory_should_store` to audit decisions, `reactivememory_memory_summarise` to compress long-term groups, and `reactivememory_memory_prune` for dry-run pruning recommendations unless `apply=true` is explicitly requested.
 
 Minimal first prompt:
@@ -226,6 +226,15 @@ Searches the compact relay layer — to retrieve short routing and topical hints
 
 ---
 
+#### `reactivememory_context_pack`
+Runs compact relay search and full semantic search concurrently, deduplicates by drawer ID, preserves source provenance, and returns a sector-diverse context pack under strict item and character budgets.
+
+**Parameters:** `query`, `maxItems` (default 8), `maxCharacters` (default 6000), `searchLimitPerSource` (default 12), and optional `sector` / `vault` filters.
+
+**When to use:** Prefer this one-call retrieval path for multi-agent handoffs and cross-project work where a bounded, high-signal context window is more useful than multiple search round trips.
+
+---
+
 #### `reactivememory_check_duplicate`
 Checks whether content already exists in the core using configurable similarity threshold matching.
 
@@ -256,6 +265,18 @@ Classifies a candidate message before storage as `personal_preference`, `long_te
 
 #### `reactivememory_memory_automanage`
 `memory.automanage` equivalent. Runs classify → skip sensitive/irrelevant → embed/store with category/vector metadata → summarise-if-large → pruning recommendation. It remains offline/private by default and does not require local model hardware.
+
+---
+
+### Background project catalog and migration
+
+#### `reactivememory_catalog_project`
+Queues incremental project mining on a bounded, single-consumer background worker and returns a job ID immediately. The worker loads the mining config, safely streams project files, skips `.git`, `bin`, `obj`, directory links, oversized files, and binary content, and applies a per-job timeout.
+
+Use `reactivememory_catalog_status` to poll the job and `reactivememory_catalog_cancel` to cancel queued or running work. Completed job metadata has bounded retention, while mined memories remain durable.
+
+#### `reactivememory_migrate_legacy_storage`
+Inspects legacy drawer and relay vector indexes in dry-run mode by default. With `apply=true`, it rebuilds missing, stale, or incompatible vectors from the drawer source of truth. Drawer JSON, orphan vectors, and the SQLite knowledge graph are preserved, and rerunning is idempotent.
 
 ---
 
@@ -642,7 +663,7 @@ public async Task<PromptContext> PreparePromptAsync(IMcpClient client, string pr
 The `ReactiveMemory.MCP.Core` library also exposes higher-level mining and entity detection APIs for use outside the MCP tool surface:
 
 ### ProjectMiner
-Scans a source directory and files all discovered content into the core. It skips `bin`, `obj`, and `.git` directories, routes files to vaults via a configurable `VaultRouter`, and maintains a file index to skip files that have not changed since the last mine.
+Scans a source directory and files all discovered content into the core. It skips `bin`, `obj`, `.git`, inaccessible and linked directories, ignores oversized/binary files, supports cooperative cancellation, routes files via a configurable `VaultRouter`, and maintains a file index to skip unchanged files. The MCP catalog tools run this work through a bounded background queue so tool requests never wait for a repository scan.
 
 ### ConversationMiner
 Parses conversation transcripts, normalises them, chunks them into segments, classifies each segment into a vault, and stores each chunk as a drawer. This is useful for bulk-importing chat history or support transcripts into the memory core.

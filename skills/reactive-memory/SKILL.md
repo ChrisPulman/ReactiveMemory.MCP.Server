@@ -36,11 +36,18 @@ Use the managed memory APIs when you want ReactiveMemory to classify, reject uns
 1. At the start of memory-aware work, call `reactivememory_status` to understand the current core.
 2. For each user prompt where memory may help, call `reactivememory_react_to_prompt` before deciding or answering.
 3. Search before making claims about previous decisions:
+   - Use `reactivememory_context_pack` when one bounded request should gather cross-project relay and semantic context for an agent handoff.
    - Use `reactivememory_search_relays` first for compact routing hints.
    - Use `reactivememory_search` for semantic retrieval of stored drawers.
    - Use `reactivememory_facts_query` for entity facts or state that can change over time.
 4. Fetch full records with `reactivememory_get_drawer` only when search snippets are insufficient.
 5. After meaningful work, store only compact durable outcomes with `reactivememory_memory_add`, `reactivememory_add_drawer`, or `reactivememory_diary_write`; use `reactivememory_memory_summarise` and `reactivememory_memory_prune` to keep long-running memory sets compact.
+
+## Background Project Catalogs
+
+Use `reactivememory_catalog_project` to queue incremental repository mining without making an agent wait for a filesystem scan. Poll with `reactivememory_catalog_status`, and cancel obsolete work with `reactivememory_catalog_cancel`. Catalog jobs are bounded, timed, single-consumer background operations; the returned job ID is the durable handoff handle while the server remains running.
+
+Use `reactivememory_migrate_legacy_storage` without `apply` first when upgrading an older core. Apply only after reviewing the dry-run summary. The migration reconciles vector indexes while preserving drawer JSON, orphan vectors, and SQLite facts.
 
 ## What To Store
 
@@ -132,6 +139,7 @@ Prefer one focused drawer over a mixed grab bag. If multiple unrelated durable f
 - `reactivememory_memory_add`, `reactivememory_memory_get_relevant`, `reactivememory_memory_summarise`, `reactivememory_memory_prune`, `reactivememory_memory_automanage`: managed memory equivalents for `memory.add`, `memory.getRelevant`, `memory.summarise`, `memory.prune`, and `memory.automanage`.
 - `reactivememory_react_to_prompt`: first memory reaction for an incoming prompt.
 - `reactivememory_search_relays`: cheap hints for where memory may live.
+- `reactivememory_context_pack`: one bounded, sector-diverse relay plus semantic recall request for cross-agent or cross-project context.
 - `reactivememory_search`: semantic drawer search.
 - `reactivememory_get_drawer`: retrieve full stored content.
 - `reactivememory_add_drawer`: store durable compact memory.
@@ -139,4 +147,6 @@ Prefer one focused drawer over a mixed grab bag. If multiple unrelated durable f
 - `reactivememory_list_sectors`, `reactivememory_list_vaults`, `reactivememory_get_taxonomy`: inspect filing structure.
 - `reactivememory_facts_query`, `reactivememory_facts_add`, `reactivememory_facts_invalidate`, `reactivememory_facts_timeline`: manage changing entity facts.
 - `reactivememory_diary_write`: concise session summary after meaningful work.
+- `reactivememory_catalog_project`, `reactivememory_catalog_status`, `reactivememory_catalog_cancel`: non-blocking incremental project catalog lifecycle.
+- `reactivememory_migrate_legacy_storage`: dry-run-first legacy vector index reconciliation.
 - `reactivememory_traverse`, `reactivememory_find_tunnels`, `reactivememory_follow_tunnels`: navigate cross-domain memory.

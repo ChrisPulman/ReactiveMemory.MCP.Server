@@ -1,20 +1,32 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using System.Text.RegularExpressions;
 
 namespace ReactiveMemory.MCP.Core.Entities;
 
-/// <summary>
-/// Heuristic entity detector inspired by the source guide behavior.
-/// </summary>
+/// <summary>Heuristic entity detector inspired by the source guide behavior.</summary>
 public static partial class EntityDetector
 {
+    /// <summary>Minimum number of occurrences required before an entity is considered.</summary>
+    private const int MinimumEntityOccurrences = 2;
+
+    /// <summary>Minimum project-context score required to classify an entity as a project.</summary>
+    private const int MinimumProjectScore = 2;
+
+    /// <summary>Maximum number of people returned by a detection pass.</summary>
+    private const int MaximumPeople = 15;
+
+    /// <summary>Maximum number of projects returned by a detection pass.</summary>
+    private const int MaximumProjects = 10;
+
+    /// <summary>Maximum number of uncertain entities returned by a detection pass.</summary>
+    private const int MaximumUncertainEntities = 8;
+
+    /// <summary>Documents the StopWords member.</summary>
     private static readonly HashSet<string> StopWords = ["The", "And", "For", "With", "This", "That", "When", "Then"];
 
-    [GeneratedRegex(@"\b(?:[A-Z][a-z]{1,19}|[A-Z][a-zA-Z]{1,19})(?:\s+(?:[A-Z][a-z]{1,19}|[A-Z][a-zA-Z]{1,19}))*\b", RegexOptions.Compiled)]
-    private static partial Regex CandidateRegex();
-
-    /// <summary>
-    /// Detects and classifies named entities in the specified text content as people, projects, or uncertain entities.
-    /// </summary>
+    /// <summary>Detects and classifies named entities in the specified text content as people, projects, or uncertain entities.</summary>
     /// <remarks>Entities are classified based on their frequency and contextual keywords. Only entities that
     /// appear at least twice are considered. The method distinguishes between people and projects using keyword
     /// scoring, and entities that cannot be confidently classified are placed in the uncertain category.</remarks>
@@ -36,12 +48,12 @@ public static partial class EntityDetector
         var people = new List<string>();
         var projects = new List<string>();
         var uncertain = new List<string>();
-        foreach (var pair in counts.Where(static item => item.Value >= 2).OrderByDescending(static item => item.Value))
+        foreach (var pair in counts.Where(static item => item.Value >= MinimumEntityOccurrences).OrderByDescending(static item => item.Value))
         {
             var name = pair.Key;
             var personScore = Score(content, name, ["said", "asked", "told", "met", "she", "he"]);
             var projectScore = Score(content, name, ["build", "deploy", "release", "version", ".csproj", "api"]);
-            if (projectScore >= 2)
+            if (projectScore >= MinimumProjectScore)
             {
                 projects.Add(name);
             }
@@ -55,9 +67,19 @@ public static partial class EntityDetector
             }
         }
 
-        return new EntityDetectionResult(people.Take(15).ToList(), projects.Take(10).ToList(), uncertain.Take(8).ToList());
+        return new EntityDetectionResult(people.Take(MaximumPeople).ToList(), projects.Take(MaximumProjects).ToList(), uncertain.Take(MaximumUncertainEntities).ToList());
     }
 
+    /// <summary>Executes the CandidateRegex operation.</summary>
+    /// <returns>The operation result.</returns>
+    [GeneratedRegex(@"\b(?:[A-Z][a-z]{1,19}|[A-Z][a-zA-Z]{1,19})(?:\s+(?:[A-Z][a-z]{1,19}|[A-Z][a-zA-Z]{1,19}))*\b", RegexOptions.Compiled)]
+    private static partial Regex CandidateRegex();
+
+    /// <summary>Documents the Score member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="content">The content value.</param>
+    /// <param name="candidate">The candidate value.</param>
+    /// <param name="hints">The hints value.</param>
     private static int Score(string content, string candidate, IReadOnlyList<string> hints)
     {
         var normalized = content;

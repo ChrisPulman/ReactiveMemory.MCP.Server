@@ -1,14 +1,15 @@
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 namespace ReactiveMemory.MCP.Core.Mining;
 
-/// <summary>
-/// Chunk normalized transcripts by exchange, paragraph, or line groups.
-/// </summary>
+/// <summary>Chunk normalized transcripts by exchange, paragraph, or line groups.</summary>
 public static class ConversationChunker
 {
-    /// <summary>
-    /// Divides the specified transcript into logical chunks based on conversational structure, paragraphs, or line
-    /// count.
-    /// </summary>
+    /// <summary>Number of transcript lines placed in each fallback chunk.</summary>
+    private const int LinesPerChunk = 25;
+
+    /// <summary>Divides the specified transcript into logical chunks based on conversational structure, paragraphs, or line count.</summary>
     /// <remarks>The method attempts to split the transcript by conversational exchanges, paragraphs, or fixed
     /// line counts, depending on the transcript's structure. Chunks shorter than 30 characters are excluded from the
     /// result.</remarks>
@@ -33,9 +34,9 @@ public static class ConversationChunker
         if (lines.Length > 20)
         {
             var result = new List<string>();
-            for (var i = 0; i < lines.Length; i += 25)
+            for (var i = 0; i < lines.Length; i += LinesPerChunk)
             {
-                var chunk = string.Join(Environment.NewLine, lines.Skip(i).Take(25)).Trim();
+                var chunk = string.Join(Environment.NewLine, lines.Skip(i).Take(LinesPerChunk)).Trim();
                 if (chunk.Length >= 30)
                 {
                     result.Add(chunk);
@@ -48,7 +49,10 @@ public static class ConversationChunker
         return transcript.Length >= 30 ? [transcript.Trim()] : [];
     }
 
-    private static IReadOnlyList<string> ChunkExchanges(string[] lines)
+    /// <summary>Documents the ChunkExchanges member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="lines">The lines value.</param>
+    private static List<string> ChunkExchanges(string[] lines)
     {
         var result = new List<string>();
         var current = new List<string>();
@@ -70,6 +74,9 @@ public static class ConversationChunker
         return result;
     }
 
+    /// <summary>Documents the AddChunk member.</summary>
+    /// <param name="result">The result value.</param>
+    /// <param name="current">The current value.</param>
     private static void AddChunk(List<string> result, List<string> current)
     {
         var chunk = string.Join(Environment.NewLine, current).Trim();

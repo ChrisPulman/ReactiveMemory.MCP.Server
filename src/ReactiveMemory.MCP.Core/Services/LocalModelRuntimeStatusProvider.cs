@@ -1,5 +1,6 @@
-using System.Collections;
-using System.Reflection;
+// Copyright (c) 2022-2026 Chris Pulman. All rights reserved.
+// Chris Pulman licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for full license information.
 using ReactiveMemory.MCP.Core.Abstractions;
 using ReactiveMemory.MCP.Core.Configuration;
 using ReactiveMemory.MCP.Core.Models;
@@ -11,29 +12,36 @@ namespace ReactiveMemory.MCP.Core.Services;
 /// </summary>
 public sealed class LocalModelRuntimeStatusProvider : ILocalModelRuntime
 {
+    /// <summary>Documents the ProviderComparer member.</summary>
     private static readonly StringComparer ProviderComparer = StringComparer.OrdinalIgnoreCase;
-    private readonly ReactiveMemoryOptions options;
-    private readonly ILocalModelProviderProbe providerProbe;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="LocalModelRuntimeStatusProvider"/> class.
-    /// </summary>
+    /// <summary>Documents the _options member.</summary>
+    private readonly ReactiveMemoryOptions _options;
+
+    /// <summary>Documents the _providerProbe member.</summary>
+    private readonly ILocalModelProviderProbe _providerProbe;
+
+    /// <summary>Initializes a new instance of the <see cref="LocalModelRuntimeStatusProvider"/> class.</summary>
+    /// <param name="options">The options value.</param>
+    /// <param name="providerProbe">The providerProbe value.</param>
     public LocalModelRuntimeStatusProvider(ReactiveMemoryOptions options, ILocalModelProviderProbe providerProbe)
     {
-        this.options = options ?? throw new ArgumentNullException(nameof(options));
-        this.providerProbe = providerProbe ?? throw new ArgumentNullException(nameof(providerProbe));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _providerProbe = providerProbe ?? throw new ArgumentNullException(nameof(providerProbe));
     }
 
+    /// <summary>Executes the GetStatus operation.</summary>
     /// <inheritdoc />
+    /// <returns>The operation result.</returns>
     public LocalModelStatusResult GetStatus()
     {
-        var settings = options.LocalModel ?? new LocalModelOptions();
+        var settings = _options.LocalModel ?? new LocalModelOptions();
         var requestedEmbeddingProvider = NormalizeProviderName(settings.EmbeddingProvider, "Hash");
         var providerPreference = NormalizeProviderPreference(settings.ProviderPreference);
         var probe = ProbeSafely();
         var availableRuntimeProviders = probe.AvailableProviders.ToHashSet(ProviderComparer);
-        var modelPath = NormalizeOptionalPath(settings.EmbeddingModelPath);
-        var tokenizerPath = NormalizeOptionalPath(settings.TokenizerPath);
+        var modelPath = LocalModelPath.NormalizeOptional(settings.EmbeddingModelPath);
+        var tokenizerPath = LocalModelPath.NormalizeOptional(settings.TokenizerPath);
         var modelFilePresent = modelPath is not null && File.Exists(modelPath);
         var tokenizerFilePresent = tokenizerPath is not null && File.Exists(tokenizerPath);
         var providers = providerPreference
@@ -42,15 +50,14 @@ public sealed class LocalModelRuntimeStatusProvider : ILocalModelRuntime
         var requestedRuntimeAvailable = providerPreference.Any(provider => IsRuntimeProviderAvailable(provider, availableRuntimeProviders));
         var requestsHashEmbedding = ProviderComparer.Equals(requestedEmbeddingProvider, "Hash");
         var embeddingProviderResolution = TryCreateEmbeddingProvider();
-        var localEmbeddingProviderAvailable = embeddingProviderResolution.IsAvailable
-            && embeddingProviderResolution.Provider is not null
-            && (settings.ExpectedEmbeddingDimensions is null || settings.ExpectedEmbeddingDimensions == embeddingProviderResolution.Provider.Dimensions);
-        var ready = settings.Enabled
-            && !requestsHashEmbedding
-            && modelFilePresent
-            && tokenizerFilePresent
-            && requestedRuntimeAvailable
-            && localEmbeddingProviderAvailable;
+        var localEmbeddingProviderAvailable = IsEmbeddingProviderAvailable(embeddingProviderResolution, settings.ExpectedEmbeddingDimensions);
+        var ready = IsReady(
+            settings.Enabled,
+            requestsHashEmbedding,
+            modelFilePresent,
+            tokenizerFilePresent,
+            requestedRuntimeAvailable,
+            localEmbeddingProviderAvailable);
         var cpuFallbackActive = !ready && settings.AllowCpuFallback;
         var activeEmbeddingProvider = ready ? requestedEmbeddingProvider : "Hash";
         var messages = BuildMessages(settings, requestsHashEmbedding, modelPath, tokenizerPath, modelFilePresent, tokenizerFilePresent, requestedRuntimeAvailable, embeddingProviderResolution.Reason, probe, ready, cpuFallbackActive);
@@ -78,22 +85,15 @@ public sealed class LocalModelRuntimeStatusProvider : ILocalModelRuntime
             messages);
     }
 
+    /// <summary>Executes the TryCreateEmbeddingProvider operation.</summary>
     /// <inheritdoc />
+    /// <returns>The operation result.</returns>
     public LocalEmbeddingProviderResolution TryCreateEmbeddingProvider()
         => LocalEmbeddingProviderResolution.Unavailable("No local embedding provider runtime is linked; deterministic hash fallback remains active.");
 
-    private LocalModelProviderProbeResult ProbeSafely()
-    {
-        try
-        {
-            return providerProbe.Probe();
-        }
-        catch (Exception ex)
-        {
-            return new LocalModelProviderProbeResult([], providerProbe.GetType().Name, ex.Message);
-        }
-    }
-
+    /// <summary>Documents the NormalizeProviderPreference member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="providers">The providers value.</param>
     private static List<string> NormalizeProviderPreference(IReadOnlyCollection<string>? providers)
     {
         var normalized = providers is null
@@ -110,25 +110,36 @@ public sealed class LocalModelRuntimeStatusProvider : ILocalModelRuntime
         return normalized;
     }
 
+    /// <summary>Documents the NormalizeProviderName member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="provider">The provider value.</param>
+    /// <param name="fallback">The fallback value.</param>
     private static string NormalizeProviderName(string? provider, string fallback)
         => string.IsNullOrWhiteSpace(provider) ? fallback : provider.Trim();
 
-    private static string? NormalizeOptionalPath(string? path)
-        => string.IsNullOrWhiteSpace(path) ? null : path.Trim();
-
+    /// <summary>Documents the BuildProviderStatus member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="provider">The provider value.</param>
+    /// <param name="availableRuntimeProviders">The availableRuntimeProviders value.</param>
+    /// <param name="allowCpuFallback">The allowCpuFallback value.</param>
     private static LocalModelProviderStatus BuildProviderStatus(string provider, IReadOnlySet<string> availableRuntimeProviders, bool allowCpuFallback)
     {
         var runtimeAvailable = IsRuntimeProviderAvailable(provider, availableRuntimeProviders);
         var isCpu = ProviderComparer.Equals(provider, "CPU");
         var available = runtimeAvailable || (isCpu && allowCpuFallback);
-        var reason = runtimeAvailable
-            ? "Execution provider reported by the optional local model runtime."
-            : isCpu && allowCpuFallback
-                ? "Deterministic CPU/hash fallback is available without ONNX Runtime."
-                : "Execution provider was not reported by the optional local model runtime.";
+        var reason = (runtimeAvailable, isCpu && allowCpuFallback) switch
+        {
+            (true, _) => "Execution provider reported by the optional local model runtime.",
+            (_, true) => "Deterministic CPU/hash fallback is available without ONNX Runtime.",
+            _ => "Execution provider was not reported by the optional local model runtime.",
+        };
         return new LocalModelProviderStatus(provider, true, available, runtimeAvailable, reason);
     }
 
+    /// <summary>Documents the IsRuntimeProviderAvailable member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="provider">The provider value.</param>
+    /// <param name="availableRuntimeProviders">The availableRuntimeProviders value.</param>
     private static bool IsRuntimeProviderAvailable(string provider, IReadOnlySet<string> availableRuntimeProviders)
     {
         if (availableRuntimeProviders.Contains(provider))
@@ -149,7 +160,20 @@ public sealed class LocalModelRuntimeStatusProvider : ILocalModelRuntime
         return aliases.Any(availableRuntimeProviders.Contains);
     }
 
-    private static IReadOnlyList<string> BuildMessages(
+    /// <summary>Documents the BuildMessages member.</summary>
+    /// <returns>The operation result.</returns>
+    /// <param name="settings">The settings value.</param>
+    /// <param name="requestsHashEmbedding">The requestsHashEmbedding value.</param>
+    /// <param name="modelPath">The modelPath value.</param>
+    /// <param name="tokenizerPath">The tokenizerPath value.</param>
+    /// <param name="modelFilePresent">The modelFilePresent value.</param>
+    /// <param name="tokenizerFilePresent">The tokenizerFilePresent value.</param>
+    /// <param name="requestedRuntimeAvailable">The requestedRuntimeAvailable value.</param>
+    /// <param name="embeddingProviderReason">The embeddingProviderReason value.</param>
+    /// <param name="probe">The probe value.</param>
+    /// <param name="ready">The ready value.</param>
+    /// <param name="cpuFallbackActive">The cpuFallbackActive value.</param>
+    private static List<string> BuildMessages(
         LocalModelOptions settings,
         bool requestsHashEmbedding,
         string? modelPath,
@@ -163,7 +187,61 @@ public sealed class LocalModelRuntimeStatusProvider : ILocalModelRuntime
         bool cpuFallbackActive)
     {
         var messages = new List<string>();
-        if (!settings.Enabled)
+        AddRuntimeModeMessage(messages, settings.Enabled, requestsHashEmbedding);
+        if (settings.Enabled && !requestsHashEmbedding)
+        {
+            AddConfigurationMessages(
+                messages,
+                modelPath,
+                tokenizerPath,
+                modelFilePresent,
+                tokenizerFilePresent,
+                requestedRuntimeAvailable,
+                embeddingProviderReason);
+        }
+
+        AddOutcomeMessages(messages, probe.Error, ready, cpuFallbackActive);
+        return messages;
+    }
+
+    /// <summary>Determines whether the resolved embedding provider satisfies the configured dimensions.</summary>
+    /// <param name="resolution">The provider resolution.</param>
+    /// <param name="expectedDimensions">The optional required dimensions.</param>
+    /// <returns><see langword="true"/> when the provider can be used.</returns>
+    private static bool IsEmbeddingProviderAvailable(LocalEmbeddingProviderResolution resolution, int? expectedDimensions)
+        => resolution.IsAvailable &&
+           resolution.Provider is not null &&
+           (expectedDimensions is null || expectedDimensions == resolution.Provider.Dimensions);
+
+    /// <summary>Determines whether the local runtime is ready.</summary>
+    /// <param name="enabled">Whether local models are enabled.</param>
+    /// <param name="requestsHashEmbedding">Whether hash embeddings were requested.</param>
+    /// <param name="modelFilePresent">Whether the model file exists.</param>
+    /// <param name="tokenizerFilePresent">Whether the tokenizer file exists.</param>
+    /// <param name="runtimeAvailable">Whether a requested runtime is available.</param>
+    /// <param name="embeddingProviderAvailable">Whether the embedding provider is available.</param>
+    /// <returns><see langword="true"/> when all readiness conditions are satisfied.</returns>
+    private static bool IsReady(
+        bool enabled,
+        bool requestsHashEmbedding,
+        bool modelFilePresent,
+        bool tokenizerFilePresent,
+        bool runtimeAvailable,
+        bool embeddingProviderAvailable)
+        => enabled &&
+           !requestsHashEmbedding &&
+           modelFilePresent &&
+           tokenizerFilePresent &&
+           runtimeAvailable &&
+           embeddingProviderAvailable;
+
+    /// <summary>Adds the active runtime mode message.</summary>
+    /// <param name="messages">The destination messages.</param>
+    /// <param name="enabled">Whether local models are enabled.</param>
+    /// <param name="requestsHashEmbedding">Whether hash embeddings were requested.</param>
+    private static void AddRuntimeModeMessage(List<string> messages, bool enabled, bool requestsHashEmbedding)
+    {
+        if (!enabled)
         {
             messages.Add("Local model runtime is disabled; deterministic hash embeddings are active.");
         }
@@ -171,41 +249,65 @@ public sealed class LocalModelRuntimeStatusProvider : ILocalModelRuntime
         {
             messages.Add("Local model runtime is enabled, but embedding provider is Hash; no model session is required.");
         }
+    }
 
-        if (settings.Enabled && !requestsHashEmbedding)
+    /// <summary>Adds missing configuration and provider messages.</summary>
+    /// <param name="messages">The destination messages.</param>
+    /// <param name="modelPath">The optional model path.</param>
+    /// <param name="tokenizerPath">The optional tokenizer path.</param>
+    /// <param name="modelFilePresent">Whether the model file exists.</param>
+    /// <param name="tokenizerFilePresent">Whether the tokenizer file exists.</param>
+    /// <param name="requestedRuntimeAvailable">Whether a requested runtime is available.</param>
+    /// <param name="embeddingProviderReason">The optional provider failure reason.</param>
+    private static void AddConfigurationMessages(
+        List<string> messages,
+        string? modelPath,
+        string? tokenizerPath,
+        bool modelFilePresent,
+        bool tokenizerFilePresent,
+        bool requestedRuntimeAvailable,
+        string? embeddingProviderReason)
+    {
+        AddMissingFileMessage(messages, modelPath, modelFilePresent, "embedding model");
+        AddMissingFileMessage(messages, tokenizerPath, tokenizerFilePresent, "tokenizer");
+        if (!requestedRuntimeAvailable)
         {
-            if (modelPath is null)
-            {
-                messages.Add("No embedding model path is configured.");
-            }
-            else if (!modelFilePresent)
-            {
-                messages.Add($"Embedding model file was not found: {modelPath}");
-            }
-
-            if (tokenizerPath is null)
-            {
-                messages.Add("No tokenizer path is configured.");
-            }
-            else if (!tokenizerFilePresent)
-            {
-                messages.Add($"Tokenizer file was not found: {tokenizerPath}");
-            }
-
-            if (!requestedRuntimeAvailable)
-            {
-                messages.Add("No requested local model execution provider was reported by the optional runtime probe.");
-            }
-
-            if (!string.IsNullOrWhiteSpace(embeddingProviderReason))
-            {
-                messages.Add(embeddingProviderReason!);
-            }
+            messages.Add("No requested local model execution provider was reported by the optional runtime probe.");
         }
 
-        if (!string.IsNullOrWhiteSpace(probe.Error))
+        if (!string.IsNullOrWhiteSpace(embeddingProviderReason))
         {
-            messages.Add(probe.Error!);
+            messages.Add(embeddingProviderReason);
+        }
+    }
+
+    /// <summary>Adds a missing path or file message.</summary>
+    /// <param name="messages">The destination messages.</param>
+    /// <param name="path">The optional file path.</param>
+    /// <param name="present">Whether the file is present.</param>
+    /// <param name="label">The user-facing file label.</param>
+    private static void AddMissingFileMessage(List<string> messages, string? path, bool present, string label)
+    {
+        if (path is null)
+        {
+            messages.Add($"No {label} path is configured.");
+        }
+        else if (!present)
+        {
+            messages.Add($"{char.ToUpperInvariant(label[0])}{label[1..]} file was not found: {path}");
+        }
+    }
+
+    /// <summary>Adds probe and readiness outcome messages.</summary>
+    /// <param name="messages">The destination messages.</param>
+    /// <param name="probeError">The optional probe error.</param>
+    /// <param name="ready">Whether the runtime is ready.</param>
+    /// <param name="cpuFallbackActive">Whether CPU fallback is active.</param>
+    private static void AddOutcomeMessages(List<string> messages, string? probeError, bool ready, bool cpuFallbackActive)
+    {
+        if (!string.IsNullOrWhiteSpace(probeError))
+        {
+            messages.Add(probeError);
         }
 
         if (cpuFallbackActive)
@@ -217,46 +319,19 @@ public sealed class LocalModelRuntimeStatusProvider : ILocalModelRuntime
         {
             messages.Add("Local model runtime is configured and the requested provider probe reported availability.");
         }
-
-        return messages;
     }
-}
 
-/// <summary>
-/// Reflection-based ONNX Runtime execution-provider probe. Returns an explanatory unavailable status when Microsoft.ML.OnnxRuntime is absent.
-/// </summary>
-public sealed class ReflectionOnnxExecutionProviderProbe : ILocalModelProviderProbe
-{
-    /// <inheritdoc />
-    public LocalModelProviderProbeResult Probe()
+    /// <summary>Documents the ProbeSafely member.</summary>
+    /// <returns>The operation result.</returns>
+    private LocalModelProviderProbeResult ProbeSafely()
     {
-        var ortEnvType = Type.GetType("Microsoft.ML.OnnxRuntime.OrtEnv, Microsoft.ML.OnnxRuntime", throwOnError: false);
-        if (ortEnvType is null)
-        {
-            return new LocalModelProviderProbeResult([], "ONNX Runtime reflection", "Microsoft.ML.OnnxRuntime is not loaded; optional local model probing is unavailable.");
-        }
-
         try
         {
-            var instance = ortEnvType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-            var method = ortEnvType.GetMethod("GetAvailableProviders", BindingFlags.Public | BindingFlags.Instance, Type.EmptyTypes);
-            if (instance is null || method is null)
-            {
-                return new LocalModelProviderProbeResult([], "ONNX Runtime reflection", "ONNX Runtime provider probe API was not found.");
-            }
-
-            var value = method.Invoke(instance, []);
-            var providers = value switch
-            {
-                IEnumerable<string> strings => strings.Where(static item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-                IEnumerable sequence => sequence.Cast<object?>().Select(static item => item?.ToString()).Where(static item => !string.IsNullOrWhiteSpace(item)).Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-                _ => [],
-            };
-            return new LocalModelProviderProbeResult(providers, "ONNX Runtime reflection");
+            return _providerProbe.Probe();
         }
-        catch (Exception ex) when (ex is TargetInvocationException or TypeLoadException or MissingMethodException or InvalidOperationException)
+        catch (Exception ex)
         {
-            return new LocalModelProviderProbeResult([], "ONNX Runtime reflection", $"ONNX Runtime provider probe failed: {ex.GetBaseException().Message}");
+            return new LocalModelProviderProbeResult([], _providerProbe.GetType().Name, ex.Message);
         }
     }
 }
