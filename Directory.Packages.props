@@ -10,7 +10,7 @@
     <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
     <PackageVersion Include="Nerdbank.GitVersioning" Version="3.10.91" />
     <PackageVersion Include="TUnit" Version="1.65.51" />
-    <PackageVersion Include="TUnit.Assertions" Version="1.65.51" />
+    <PackageVersion Include="TUnit.Assertions" Version="1.65.68" />
     <PackageVersion Include="StyleSharp.Analyzers" Version="3.28.1" />
   </ItemGroup>
 </Project>
