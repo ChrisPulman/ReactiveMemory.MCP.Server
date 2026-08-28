@@ -8,7 +8,7 @@
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
     <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
-    <PackageVersion Include="Nerdbank.GitVersioning" Version="3.10.91" />
+    <PackageVersion Include="Nerdbank.GitVersioning" Version="3.10.94" />
     <PackageVersion Include="TUnit" Version="1.65.51" />
     <PackageVersion Include="TUnit.Assertions" Version="1.65.68" />
     <PackageVersion Include="StyleSharp.Analyzers" Version="3.28.1" />
